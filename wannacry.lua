@@ -2823,9 +2823,10 @@ local TABS = {
     {id = "Troll",     title = "Troll",     sub = "Шалости и выбросы"},
     {id = "Background", title = "Background", sub = "Фон меню: картинка и прозрачность"},
     {id = "Settings",  title = "Settings",  sub = "Клавиша меню, кнопка-логотип и конфиги"},
+    {id = "Info",      title = "Info",      sub = "Экзекьютор, версия и апдейт-лист"},
 }
-local TAB_ORDER = {"Visuals", "ESP", "Movement", "Cosmetics", "Community", "Troll", "Background", "Settings"}
-local TAB_Y0, TAB_STEP, TAB_H = 80, 46, 40
+local TAB_ORDER = {"Visuals", "ESP", "Movement", "Cosmetics", "Community", "Troll", "Background", "Settings", "Info"}
+local TAB_Y0, TAB_STEP, TAB_H = 78, 42, 38
 
 local TabHighlight = new("Frame", {Size = UDim2.new(1, -16, 0, TAB_H), Position = UDim2.fromOffset(8, TAB_Y0), Visible = false, ZIndex = 2, Parent = Sidebar})
 liquid(TabHighlight, {radius = 14, transparency = 0.88})
@@ -2964,8 +2965,9 @@ local CommunityTab = new("Frame", {Name = "CommunityTab", Size = UDim2.fromScale
 local TrollTab     = new("Frame", {Name = "TrollTab",     Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false, Parent = Pages})
 local BackgroundTab = new("Frame", {Name = "BackgroundTab", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false, Parent = Pages})
 local SettingsTab = new("Frame", {Name = "SettingsTab", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false, Parent = Pages})
+local InfoTab = new("Frame", {Name = "InfoTab", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false, Parent = Pages})
 
-local PageFrames = {Visuals = VisualsTab, ESP = ESPTab, Movement = MovementTab, Cosmetics = CosmeticsTab, Community = CommunityTab, Troll = TrollTab, Background = BackgroundTab, Settings = SettingsTab}
+local PageFrames = {Visuals = VisualsTab, ESP = ESPTab, Movement = MovementTab, Cosmetics = CosmeticsTab, Community = CommunityTab, Troll = TrollTab, Background = BackgroundTab, Settings = SettingsTab, Info = InfoTab}
 local VisualsScroll = makeScrollPage(VisualsTab)
 
 local KNOB = 24
@@ -6796,5 +6798,139 @@ if WC_CFG.autoloaded then
         notify("Конфиг загружен", "Автозагрузка: " .. WC_CFG.settings.autoload)
     end)
 end
+
+-- ================= ВКЛАДКА INFO: экзекьютор + апдейт-лист =================
+do (function()
+    local VERSION = "2.7"
+    local LOADSTRING = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/wannacry.lua"))()'
+    local CHANGELOG = {
+        {v = "2.7", date = "17.11.2026", items = {
+            "Вкладка Info: экзекьютор, поддержка функций, апдейт-лист",
+        }},
+        {v = "2.6", date = "17.11.2026", items = {
+            "ESP, ники, метки «wannacry» и облачка чата больше не съезжают при Aspect",
+            "Единая проекция мир → экран для любого разрешения и аспект-ратио",
+        }},
+        {v = "2.5", date = "17.11.2026", items = {
+            "Вкладка Settings: своя клавиша меню",
+            "Кнопка-логотип под HUD — открывает и закрывает меню",
+            "Конфиги: сохранить, загрузить, перезаписать, удалить, автозагрузка ★",
+        }},
+        {v = "2.4", date = "17.11.2026", items = {
+            "Облачко с сообщением над игроком, который написал в Global Chat",
+            "Метка «wannacry» над юзерами скрипта",
+            "Иконки Lucide вместо символов, которые Roblox не отображал",
+        }},
+        {v = "2.3", date = "17.11.2026", items = {
+            "Вкладка Community: Global Chat в стиле меню",
+            "«На сервере»: видно юзеров скрипта и их косметику (хаб на Wispbyte)",
+            "Админ-панель: муты, баны, тролль, защита, админы + закрытый чат админов",
+        }},
+        {v = "2.2", date = "17.11.2026", items = {
+            "24 косметики с 3D-превью: крылья, шапки, питомцы, рюкзаки, плащи",
+            "Текстуры косметики рисуются кодом (PNG) и кэшируются",
+            "KorBlox — чёрная игла с синим кончиком, исправлен звук включения",
+            "Strafe быстрее и резче: скорость, резкость, Bhop",
+            "Исправлены баги: ESP после выгрузки, HUD Roblox, Fly после респавна, Fling",
+        }},
+    }
+
+    local scroll = makeScrollPage(InfoTab)
+    local GREEN, RED = Color3.fromRGB(90, 220, 130), Color3.fromRGB(255, 110, 110)
+
+    local function card(h)
+        local f = new("Frame", {Size = UDim2.new(1, -4, 0, h), LayoutOrder = nextOrder(), Parent = scroll})
+        soft(f, {radius = 18, transparency = 0.95})
+        return f
+    end
+    local function text(parent, t, x, y, w, h, size, font, color, rich)
+        return new("TextLabel", {
+            Position = UDim2.fromOffset(x, y), Size = UDim2.new(w, w == 1 and -x - 14 or 0, 0, h), BackgroundTransparency = 1,
+            Text = t, RichText = rich or false, FontFace = font or F.Medium, TextSize = size or 13, TextColor3 = color or Glass.Text,
+            TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 2, Parent = parent,
+        })
+    end
+
+    -- ---------- шапка ----------
+    local head = card(78)
+    local logo = new("ImageLabel", {Position = UDim2.fromOffset(16, 15), Size = UDim2.fromOffset(48, 48), BackgroundTransparency = 0.9, BackgroundColor3 = Glass.White, Image = logoAsset or "", ScaleType = Enum.ScaleType.Crop, ZIndex = 2, Parent = head})
+    corner(logo, 14)
+    text(head, "wannacry", 78, 16, 1, 24, 20, F.Bold)
+    text(head, "версия " .. VERSION .. "  ·  " .. CHANGELOG[1].date, 78, 42, 1, 18, 12, F.Medium, Glass.TextDim)
+    local copyB = glassButton(head, "Копировать loadstring", {AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -14, 0.5, 0), Size = UDim2.fromOffset(170, 34)},
+        {radius = "full", transparency = 0.86, textSize = 12})
+    copyB.MouseButton1Click:Connect(guarded(function()
+        local clip = setclipboard or toclipboard or (syn and syn.write_clipboard)
+        if clip then clip(LOADSTRING); notify("Скопировано", "Loadstring wannacry в буфере обмена")
+        else notify("Не получилось", "Экзекьютор не умеет копировать в буфер") end
+    end))
+
+    -- ---------- экзекьютор ----------
+    makeSection(scroll, "ЭКЗЕКЬЮТОР")
+    local exName, exVer = "Неизвестно", ""
+    pcall(function()
+        if identifyexecutor then
+            local a, b = identifyexecutor()
+            exName, exVer = tostring(a or exName), tostring(b or "")
+        elseif getexecutorname then
+            exName = tostring(getexecutorname())
+        end
+    end)
+    local level = "?"
+    pcall(function()
+        local f = getthreadidentity or getidentity or get_thread_identity or (syn and syn.get_thread_identity)
+        if f then level = tostring(f()) end
+    end)
+    local ex = card(64)
+    text(ex, exName .. ((exVer ~= "" and exVer ~= "nil") and ('  <font color="#8a8fa8">' .. exVer .. "</font>") or ""), 18, 12, 1, 22, 16, F.Bold, Glass.Text, true)
+    text(ex, "Уровень доступа (identity): " .. level, 18, 36, 1, 16, 12, F.Medium, Glass.TextDim)
+
+    local req = (syn and syn.request) or (http and http.request) or http_request or request
+    local checks = {
+        {"HTTP-запросы (request)", req ~= nil, "Global Chat, хаб, админ-панель"},
+        {"Файлы (writefile / readfile)", type(writefile) == "function" and type(readfile) == "function", "конфиги, кэш текстур"},
+        {"getcustomasset", type(getcustomasset) == "function", "текстуры косметики, логотип"},
+        {"listfiles", type(listfiles) == "function", "список конфигов"},
+        {"delfile", type(delfile) == "function", "удаление конфигов"},
+        {"gethui", type(gethui) == "function", "спрятанный от игры интерфейс"},
+        {"setclipboard", (setclipboard or toclipboard) ~= nil, "копирование loadstring и токенов"},
+    }
+    local okCount = 0
+    for _, c in ipairs(checks) do if c[2] then okCount += 1 end end
+    local sup = card(30 + #checks * 26)
+    text(sup, ("Поддерживается %d из %d функций"):format(okCount, #checks), 18, 8, 1, 18, 13, F.Semi,
+        okCount == #checks and GREEN or Glass.Text)
+    for i, c in ipairs(checks) do
+        local y = 30 + (i - 1) * 26
+        local dot = new("Frame", {Position = UDim2.fromOffset(18, y + 2), Size = UDim2.fromOffset(18, 18), BackgroundColor3 = c[2] and GREEN or RED, BackgroundTransparency = 0.75, ZIndex = 2, Parent = sup})
+        corner(dot, "full")
+        WC_ICON.make(c[2] and "check" or "x", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(12, 12), ImageColor3 = c[2] and GREEN or RED, ZIndex = 3, Parent = dot})
+        text(sup, c[1] .. '  <font color="#8a8fa8">— ' .. c[3] .. "</font>", 46, y, 1, 22, 12, F.Medium, Glass.Text, true)
+    end
+
+    -- ---------- игра ----------
+    makeSection(scroll, "ИГРА")
+    local gm = card(64)
+    local placeL = text(gm, "Place " .. tostring(game.PlaceId), 18, 12, 1, 20, 14, F.Semi)
+    text(gm, ("Игроков на сервере: %d  ·  JobId: %s"):format(#Players:GetPlayers(), game.JobId ~= "" and game.JobId:sub(1, 8) .. "…" or "—"), 18, 36, 1, 16, 12, F.Medium, Glass.TextDim)
+    task.spawn(function()
+        local ok, info = pcall(function() return game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId) end)
+        if ok and type(info) == "table" and info.Name and placeL.Parent then
+            placeL.Text = tostring(info.Name) .. "  ·  " .. tostring(game.PlaceId)
+        end
+    end)
+
+    -- ---------- апдейт-лист ----------
+    makeSection(scroll, "АПДЕЙТ-ЛИСТ")
+    for idx, e in ipairs(CHANGELOG) do
+        local h = 40 + #e.items * 20
+        local c = card(h)
+        text(c, "v" .. e.v .. (idx == 1 and '  <font color="#5be38a">· новое</font>' or ""), 18, 10, 1, 20, 15, F.Bold, Glass.Text, true)
+        text(c, e.date, 18, 10, 1, 20, 12, F.Medium, Glass.TextMute).TextXAlignment = Enum.TextXAlignment.Right
+        for i, it in ipairs(e.items) do
+            text(c, "•  " .. it, 22, 32 + (i - 1) * 20, 1, 18, 12, F.Regular, Glass.TextDim)
+        end
+    end
+end)() end
 
 notify("wannacry загружен", UserInputService.KeyboardEnabled and (WC_CFG.settings.menuKey .. " или логотип слева сверху — меню") or "Нажми на логотип слева сверху, чтобы открыть меню")
