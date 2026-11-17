@@ -946,7 +946,7 @@ do (function()
         local sx = (State.AspectEnabled and State.AspectValue) or 1
         local rel = pos - cf.Position
         local x = rel:Dot(X.Unit)
-        local y = rel:Dot(Y.Unit) / sx
+        local y = rel:Dot(Y.Unit) * sx   -- движок растягивает картинку умножением на силу Aspect
         local z = rel:Dot(Z.Unit)
         if z >= -0.05 then return nil end
         local vp = cam.ViewportSize
@@ -6801,9 +6801,12 @@ end
 
 -- ================= ВКЛАДКА INFO: экзекьютор + апдейт-лист =================
 do (function()
-    local VERSION = "2.7"
+    local VERSION = "2.7.1"
     local LOADSTRING = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/wannacry.lua"))()'
     local CHANGELOG = {
+        {v = "2.7.1", date = "17.11.2026", items = {
+            "Исправлено: при включённом Aspect ESP, ники и метки снова стоят ровно на персонаже",
+        }},
         {v = "2.7", date = "17.11.2026", items = {
             "Вкладка Info: экзекьютор, поддержка функций, апдейт-лист",
         }},
