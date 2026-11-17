@@ -932,6 +932,80 @@ do (function()
     task.spawn(Tex.loadAll)
 end)() end
 
+-- ================= ПРОЕКЦИЯ МИР → ЭКРАН (с учётом Aspect / растянутого разрешения) =================
+-- Aspect растягивает камеру по Y, и движок рисует мир растянутым. Всё, что мы рисуем
+-- поверх (ESP, метки, облачка чата), проецируем той же математикой — поэтому оно
+-- стоит ровно на персонаже при любом разрешении, аспект-ратио, FOV и силе Aspect.
+local WC_PROJ = {items = {}, gui = nil}
+do (function()
+    function WC_PROJ.toScreen(pos)
+        local cam = Workspace.CurrentCamera
+        if not cam then return nil end
+        local cf = cam.CFrame
+        local X, Y, Z = cf.XVector, cf.YVector, cf.ZVector
+        local sx = (State.AspectEnabled and State.AspectValue) or 1
+        local rel = pos - cf.Position
+        local x = rel:Dot(X.Unit)
+        local y = rel:Dot(Y.Unit) / sx
+        local z = rel:Dot(Z.Unit)
+        if z >= -0.05 then return nil end
+        local vp = cam.ViewportSize
+        if vp.X <= 0 or vp.Y <= 0 then return nil end
+        local t = math.tan(math.rad(cam.FieldOfView) / 2)
+        local d = -z
+        local px = (x / (d * t * vp.X / vp.Y) + 1) * 0.5 * vp.X
+        local py = (1 - y / (d * t)) * 0.5 * vp.Y
+        return Vector2.new(px, py), d
+    end
+    local function overlay()
+        if WC_PROJ.gui and WC_PROJ.gui.Parent then return WC_PROJ.gui end
+        local g = Instance.new("ScreenGui")
+        g.Name = "WannacryOverlay"
+        g.ResetOnSpawn = false
+        g.IgnoreGuiInset = true
+        g.DisplayOrder = 996
+        g.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        pcall(function() g.ScreenInsets = Enum.ScreenInsets.None end)
+        g.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+        WC_PROJ.gui = g
+        return g
+    end
+    -- прикрепить 2D-элемент к точке над деталью: top — студы над деталью, up — пиксели вверх
+    function WC_PROJ.attach(gui, part, top, up, maxDist)
+        gui.AnchorPoint = Vector2.new(0.5, 1)
+        gui.Visible = false
+        gui.Parent = overlay()
+        WC_PROJ.items[gui] = {part = part, top = top or 0, up = up or 0, max = maxDist or 120}
+        return gui
+    end
+    local conn
+    conn = RunService.RenderStepped:Connect(function()
+        if ScriptUnloaded then
+            conn:Disconnect()
+            if WC_PROJ.gui then WC_PROJ.gui:Destroy() end
+            return
+        end
+        if next(WC_PROJ.items) == nil then return end
+        local cam = Workspace.CurrentCamera
+        local origin = WC_PROJ.gui and WC_PROJ.gui.AbsolutePosition or Vector2.zero
+        for gui, it in pairs(WC_PROJ.items) do
+            if not gui.Parent or not it.part.Parent then
+                WC_PROJ.items[gui] = nil
+                if gui.Parent and not it.part.Parent then gui:Destroy() end
+            else
+                local pos = it.part.Position + Vector3.new(0, it.top, 0)
+                local sp = WC_PROJ.toScreen(pos)
+                if sp and cam and (pos - cam.CFrame.Position).Magnitude <= it.max then
+                    gui.Position = UDim2.fromOffset(sp.X - origin.X, sp.Y - origin.Y - it.up)
+                    gui.Visible = true
+                else
+                    gui.Visible = false
+                end
+            end
+        end
+    end)
+end)() end
+
 do
     local ASPECT_BIND = "WC_Aspect_" .. tostring(math.random(1, 1e6))
     _genv.__WC_ASPECT_BIND = ASPECT_BIND
@@ -2357,7 +2431,7 @@ end
 -- =====================================================================
 local GuiService = game:GetService("GuiService")
 
-for _, n in ipairs({"WannacryUI", "WannacryHUD", "WannacryESP", "WannacryFX"}) do
+for _, n in ipairs({"WannacryUI", "WannacryHUD", "WannacryESP", "WannacryFX", "WannacryOverlay"}) do
     local old = parentGui:FindFirstChild(n)
     if old then old:Destroy() end
 end
@@ -3554,8 +3628,8 @@ end
 local function WorldToScreen(worldPos)
     local cam = Workspace.CurrentCamera
     if not cam then return nil, false end
-    local sp = cam:WorldToViewportPoint(worldPos)
-    if sp.Z <= 0 then return nil, false end
+    local sp = WC_PROJ.toScreen(worldPos)
+    if not sp then return nil, false end
     local origin = ESPGui.AbsolutePosition
     return Vector2.new(sp.X - origin.X, sp.Y - origin.Y), true
 end
@@ -4696,8 +4770,9 @@ do (function()
     -- ---------- косметика других юзеров скрипта (с сервера-хаба) ----------
     -- Cos.remote[userId] = {player, char, want = {id=true}, entries = {id=e}, body = {}, tag}
     Cos.remote = {}
-    -- метка «wannacry» ровно над головой: крепится к HumanoidRootPart, высота берётся
-    -- от реального верха головы, смещение в мировых осях (не качается вместе с телом)
+    -- метка «wannacry» над головой: 2D-плашка на оверлее, позиция считается каждый кадр
+    -- общей проекцией (учитывает Aspect) — стоит ровно над персонажем, не «съезжает».
+    -- Снизу 26 px оставлены под ESP-ник.
     local function makeTag(char)
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if not hrp then return nil end
@@ -4707,25 +4782,12 @@ do (function()
             top = (head.Position.Y + head.Size.Y / 2) - hrp.Position.Y
         end
         top = math.clamp(top, 1.2, 10)
-        -- Billboard растёт ВВЕРХ от точки над головой (SizeOffset), размер в пикселях:
-        -- при любом расстоянии/разрешении метка не наезжает на персонажа.
-        -- Нижние 26 px пустые — там место под ESP-ник.
-        local bb = Instance.new("BillboardGui")
-        bb.Name = "WC_UserTag"
-        bb.Size = UDim2.fromOffset(140, 52)
-        bb.SizeOffset = Vector2.new(0, 0.5)
-        bb.StudsOffsetWorldSpace = V3(0, top + 0.3, 0)
-        bb.MaxDistance = 120
-        bb.AlwaysOnTop = true
-        bb.LightInfluence = 0
         local pill = Instance.new("Frame")
-        pill.AnchorPoint = Vector2.new(0.5, 0)
-        pill.Position = UDim2.new(0.5, 0, 0, 2)
+        pill.Name = "WC_UserTag"
         pill.Size = UDim2.fromOffset(0, 22)
         pill.AutomaticSize = Enum.AutomaticSize.X
         pill.BackgroundColor3 = C3(18, 18, 26)
         pill.BackgroundTransparency = 0.25
-        pill.Parent = bb
         local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(1, 0); c.Parent = pill
         local st = Instance.new("UIStroke"); st.Color = C3(190, 160, 255); st.Transparency = 0.45; st.Thickness = 1; st.Parent = pill
         local pad = Instance.new("UIPadding"); pad.PaddingLeft = UDim.new(0, 8); pad.PaddingRight = UDim.new(0, 9); pad.Parent = pill
@@ -4747,9 +4809,7 @@ do (function()
         l.Font = Enum.Font.GothamBold
         l.LayoutOrder = 2
         l.Parent = pill
-        bb.Adornee = hrp
-        bb.Parent = hrp
-        return bb
+        return WC_PROJ.attach(pill, hrp, top + 0.25, 26, 120)
     end
     local function dropRemoteVisuals(r)
         for id, e in pairs(r.entries) do destroyEntry(e); r.entries[id] = nil end
@@ -5496,22 +5556,15 @@ do (function()
         if not ok then sz = Vector2.new(BUBBLE_MAXW, BUBBLE_SIZE * 2) end
         local w, h = math.ceil(sz.X) + 26, math.ceil(sz.Y) + 16
 
-        -- растёт вверх от точки над головой; снизу пиксельный отступ под ESP-ник и метку
-        local hasTag = hrp:FindFirstChild("WC_UserTag") ~= nil
+        -- 2D-облачко на оверлее, общей проекцией (учитывает Aspect); снизу отступ под ESP-ник и метку
+        local rr = Cos.remote[plr.UserId]
+        local hasTag = rr and rr.tag and rr.tag.Parent ~= nil
         local gap = hasTag and 56 or 28
-        local bb = Instance.new("BillboardGui")
-        bb.Name = "WC_ChatBubble"
-        bb.Size = UDim2.fromOffset(w, h + gap)
-        bb.SizeOffset = Vector2.new(0, 0.5)
-        bb.StudsOffsetWorldSpace = Vector3.new(0, top + 0.3, 0)
-        bb.MaxDistance = 100
-        bb.AlwaysOnTop = true
-        bb.LightInfluence = 0
         local f = Instance.new("Frame")
-        f.Size = UDim2.new(1, 0, 0, h)
+        f.Name = "WC_ChatBubble"
+        f.Size = UDim2.fromOffset(w, h)
         f.BackgroundColor3 = Color3.fromRGB(18, 18, 26)
         f.BackgroundTransparency = 1
-        f.Parent = bb
         local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 12); c.Parent = f
         local st = Instance.new("UIStroke"); st.Color = Color3.fromRGB(190, 160, 255); st.Thickness = 1; st.Transparency = 1; st.Parent = f
         local sc = Instance.new("UIScale"); sc.Scale = 0.8; sc.Parent = f
@@ -5527,8 +5580,7 @@ do (function()
         l.TextXAlignment = Enum.TextXAlignment.Center
         l.Text = text
         l.Parent = f
-        bb.Adornee = hrp
-        bb.Parent = hrp
+        local bb = WC_PROJ.attach(f, hrp, top + 0.25, gap, 100)
         bubbles[plr] = bb
 
         -- появление
@@ -6488,6 +6540,7 @@ local function Unload()
     pcall(Features.applyDBDAnimations, false)
     pcall(Cos.unmountAll)
     pcall(Cos.clearAllRemote)
+    pcall(function() if WC_PROJ.gui then WC_PROJ.gui:Destroy() end end)
     pcall(function() if Cos.folder then Cos.folder:Destroy() end end)
     pcall(Features.applyKorblox, false)
     pcall(Features.applyHeadless, false)
