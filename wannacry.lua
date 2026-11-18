@@ -1058,7 +1058,7 @@ do (function()
 
     Tex.ITEM_BASE = "https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/items/"
     Tex.ITEM_REV = "r1"
-    Tex.ITEMS = {"door_b", "door_f", "door_l", "door_r", "hat_black", "hat_pink", "katana", "mask_band_b", "mask_band_s", "mask_bh", "mask_f", "mask_side", "peng_b", "peng_f", "peng_l", "peng_r", "trident", "w_angel_l", "w_angel_r", "w_aqua_l", "w_aqua_r", "w_diamond_l", "w_diamond_r", "w_pulse_l", "w_pulse_r", "yagik_b", "yagik_f", "yagik_l", "yagik_r"}
+    Tex.ITEMS = {"door_b", "door_f", "door_l", "door_r", "hat_black", "hat_pink", "katana", "mask_band_b", "mask_band_s", "mask_bh", "mask_f", "mask_side", "peng_b", "peng_f", "peng_l", "peng_r", "trident", "w_angel_l", "w_angel_lm", "w_angel_r", "w_angel_rm", "w_aqua_l", "w_aqua_lm", "w_aqua_r", "w_aqua_rm", "w_diamond_l", "w_diamond_lm", "w_diamond_r", "w_diamond_rm", "w_pulse_l", "w_pulse_lm", "w_pulse_r", "w_pulse_rm", "yagik_b", "yagik_f", "yagik_l", "yagik_r"}
     function Tex.loadItem(name)
         local path = "WannacryAssets/it_" .. Tex.ITEM_REV .. "_" .. name .. ".png"
         if not isfile(path) then
@@ -4635,21 +4635,39 @@ do (function()
         if not ok then p.Transparency = 0 end
         return p
     end
-    -- крылья-карточки: половинки картинки, разведены буквой V назад
+    -- крылья-карточки: половинки картинки, разведены буквой V назад.
+    -- Сзади — картинка как есть, спереди — её зеркало (иначе при повороте камеры крыло «выворачивалось»).
+    local WING_SCALE = 1.4
     local function cardWings(R, key, wPx, hPx, s, alpha, gapPx, yOff)
+        s = s * WING_SCALE
         local W, H = wPx * s / math.cos(alpha), hPx * s
         for i, side in ipairs({1, -1}) do
-            local g = G(R, "w" .. i, CF(side * gapPx * s / 2, yOff, 0.12), true)
-            card(g, "w_" .. key .. (side == 1 and "_r" or "_l"), nil, W, H, CF(side * W / 2, 0, 0))
+            local g = G(R, "w" .. i, CF(side * gapPx * s / 2, yOff + 0.15, 0.12), true)
+            local nm = "w_" .. key .. (side == 1 and "_r" or "_l")
+            card(g, nm .. "m", nm, W, H, CF(side * W / 2, 0, 0))
         end
         R.data.alpha = alpha
     end
+    -- плавная анимация: в покое еле дышат, при ходьбе машут, в прыжке — сильно
     local function cardWingAnim(R, t, dt, ctx)
-        local a = R.data.alpha or 0.3
-        local air = ctx.air and 1 or 0
-        local f = sin(t * (2 + 4 * air)) * (0.08 + 0.22 * air)
-        R.pose.w1 = ANG(0, -(a + f), 0)
-        R.pose.w2 = ANG(0, a + f, 0)
+        local d = R.data
+        local a = d.alpha or 0.3
+        local spd = (ctx and ctx.speed) or 0
+        local target = (ctx and ctx.air) and 1 or math.min(math.max((spd - 1) / 15, 0), 1)
+        local k = (dt and dt > 0) and (1 - math.exp(-3.5 * dt)) or 1
+        d.m = (d.m or target) + (target - (d.m or target)) * k
+        local m = d.m
+        local freq = 0.55 + 1.35 * m
+        if dt and dt > 0 then
+            d.ph = ((d.ph or 0) + dt * freq * TAU) % TAU
+        else
+            d.ph = t * freq * TAU
+        end
+        local f = sin(d.ph) * (0.06 + 0.26 * m)
+        local lift = sin(d.ph - 0.6) * (0.03 + 0.1 * m)
+        local open = a + 0.1 * m
+        R.pose.w1 = ANG(0, -(open + f), 0) * ANG(0, 0, lift)
+        R.pose.w2 = ANG(0, open + f, 0) * ANG(0, 0, -lift)
     end
 
     D({id = "angel", name = "Angel Wings", cat = "Wings", anchor = "back", view = "back",
@@ -5194,7 +5212,7 @@ do (function()
     -- ---------- превью ----------
     local PREVIEW_ROOT = {back = CF(0, 0.3, 0.5), cape = CF(0, 0.95, 0.54), hat = CF(0, 2.03, 0), pet = IDENT}
     function Cos.previewCtx(def)
-        return {speed = (def.cat == "Capes") and 9 or 0, air = (def.cat == "Wings")}
+        return {speed = (def.cat == "Capes" or def.cat == "Wings") and 9 or 0, air = false}
     end
     function Cos.mannequin(parent)
         local col = C3(196, 202, 216)
@@ -7411,9 +7429,13 @@ end
 
 -- ================= ВКЛАДКА INFO: экзекьютор + апдейт-лист =================
 do (function()
-    local VERSION = "3.5.1"
+    local VERSION = "3.5.2"
     local LOADSTRING = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/wannacry.lua"))()'
     local CHANGELOG = {
+        {v = "3.5.2", date = "18.11.2026", items = {
+            "Крылья больше в 1.4 раза, плавно машут при ходьбе и сильнее в прыжке",
+            "Фикс: крылья больше не выворачиваются при повороте камеры",
+        }},
         {v = "3.5.1", date = "18.11.2026", items = {
             "Трезубец и катана снова объёмные (цвета с присланных картинок)",
         }},
