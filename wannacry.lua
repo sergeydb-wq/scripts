@@ -4672,17 +4672,50 @@ do (function()
         build = function(R) cardWings(R, "aqua", 57, 56, 0.0365, rad(30), 12, 0.35) end,
         anim = cardWingAnim})
 
+    -- катана и трезубец — объёмные (цвета сняты с присланных картинок)
     D({id = "nn_katana", name = "Катана", cat = "Wings", col = "НН", anchor = "back", view = "back",
-        desc = "Катана за спиной",
+        desc = "Объёмная катана за спиной: светлый клинок, чёрная цуба, тёмная рукоять",
         build = function(R)
-            local s = 0.0264
-            card(G(R, "k", CF(0, 0.1, 0.22)), "katana", nil, 114 * s, 129 * s, IDENT)
+            local g = G(R, "k", CF(0, 0.15, 0.24) * ANG(0, 0, rad(-41)))
+            local handle, wrap, guard = C3(92, 79, 75), C3(54, 50, 49), C3(22, 22, 24)
+            local steel, edge = C3(224, 222, 221), C3(246, 246, 245)
+            -- рукоять с обмоткой
+            P(g, "block", V3(0.15, 0.78, 0.13), CF(0, 1.36, 0), handle)
+            for i = 0, 4 do P(g, "block", V3(0.16, 0.07, 0.14), CF(0, 1.06 + i * 0.15, 0), wrap) end
+            P(g, "block", V3(0.17, 0.08, 0.15), CF(0, 1.78, 0), wrap)
+            -- цуба
+            P(g, "block", V3(0.36, 0.07, 0.3), CF(0, 0.94, 0), guard)
+            P(g, "block", V3(0.15, 0.08, 0.13), CF(0, 0.87, 0), C3(150, 150, 155))
+            -- клинок с лёгким изгибом
+            local cur = CF(0, 0.83, 0)
+            for i = 1, 6 do
+                P(g, "block", V3(0.12, 0.4, 0.05), cur * CF(0, -0.2, 0), steel, M.SmoothPlastic, {Reflectance = 0.25})
+                P(g, "block", V3(0.035, 0.4, 0.055), cur * CF(-0.05, -0.2, 0), edge, M.SmoothPlastic, {Reflectance = 0.3})
+                cur = cur * CF(0, -0.38, 0) * ANG(0, 0, rad(2.2))
+            end
+            P(g, "wedge", V3(0.05, 0.2, 0.12), cur * CF(0, -0.1, 0) * ANG(0, PI / 2, PI), steel)
         end})
     D({id = "trident", name = "Трезубец", cat = "Wings", col = "Барашка", anchor = "back", view = "back",
-        desc = "Бирюзовый трезубец за спиной",
+        desc = "Объёмный бирюзовый трезубец за спиной",
         build = function(R)
-            local s = 0.0275
-            card(G(R, "t", CF(0, 0.1, 0.25)), "trident", nil, 96 * s, 138 * s, IDENT)
+            local g = G(R, "t", CF(0, 0.1, 0.26) * ANG(0, 0, rad(32)))
+            local shaft, shaftD, head = C3(98, 178, 166), C3(78, 150, 140), C3(70, 146, 136)
+            local prongL, prongT = C3(170, 214, 204), C3(226, 240, 234)
+            -- древко (полосы оттенков, как на картинке)
+            local L, n = 3.3, 6
+            for i = 0, n - 1 do
+                P(g, "block", V3(0.13, L / n, 0.13), CF(0, -L / 2 + (i + 0.5) * L / n, 0), (i % 2 == 0) and shaft or shaftD)
+            end
+            -- основание головы
+            P(g, "block", V3(0.24, 0.24, 0.17), CF(0, L / 2 + 0.06, 0) * ANG(0, 0, rad(45)), head)
+            P(g, "block", V3(0.5, 0.13, 0.13), CF(0, L / 2 + 0.2, 0), head)
+            -- три зубца: снизу бирюзовые, к кончикам светлые
+            for _, pr in ipairs({{0, 0.72}, {-0.21, 0.58}, {0.21, 0.58}}) do
+                local x, len = pr[1], pr[2]
+                local y0 = L / 2 + 0.26
+                P(g, "block", V3(0.11, len * 0.45, 0.11), CF(x, y0 + len * 0.225, 0), prongL)
+                P(g, "block", V3(0.11, len * 0.55, 0.11), CF(x, y0 + len * 0.45 + len * 0.275, 0), prongT)
+            end
         end})
 
     D({id = "penguin", name = "Пингвин", cat = "Hats", col = "Аква", anchor = "hat", view = "front",
@@ -7378,9 +7411,12 @@ end
 
 -- ================= ВКЛАДКА INFO: экзекьютор + апдейт-лист =================
 do (function()
-    local VERSION = "3.5"
+    local VERSION = "3.5.1"
     local LOADSTRING = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/wannacry.lua"))()'
     local CHANGELOG = {
+        {v = "3.5.1", date = "18.11.2026", items = {
+            "Трезубец и катана снова объёмные (цвета с присланных картинок)",
+        }},
         {v = "3.5", date = "18.11.2026", items = {
             "Вся косметика коллекций теперь с текстурами из присланных картинок (пингвин, ягик, дверь, маска, шапка флюга, катана, трезубец)",
             "Новые Angel Wings + крылья Даймонд, Пулс и Аква",
