@@ -1058,7 +1058,7 @@ do (function()
 
     Tex.ITEM_BASE = "https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/items/"
     Tex.ITEM_REV = "r1"
-    Tex.ITEMS = {"door_b", "door_f", "door_l", "door_r", "hat_black", "hat_pink", "katana", "mask_band_b", "mask_band_s", "mask_bh", "mask_f", "mask_side", "peng_b", "peng_f", "peng_l", "peng_r", "peng_top", "trident", "w_angel_l", "w_angel_lm", "w_angel_r", "w_angel_rm", "w_aqua_l", "w_aqua_lm", "w_aqua_r", "w_aqua_rm", "w_diamond_l", "w_diamond_lm", "w_diamond_r", "w_diamond_rm", "w_pulse_l", "w_pulse_lm", "w_pulse_r", "w_pulse_rm", "yagik_b", "yagik_f", "yagik_face", "yagik_fur", "yagik_l", "yagik_r"}
+    Tex.ITEMS = {"d_back", "d_front", "d_side", "door_b", "door_f", "door_l", "door_r", "hat_black", "hat_pink", "katana", "m_back", "m_front", "m_side", "m_top", "mask_band_b", "mask_band_s", "mask_bh", "mask_f", "mask_side", "p_back", "p_beak", "p_foot", "p_front", "p_side", "p_side_m", "peng_b", "peng_f", "peng_l", "peng_r", "peng_top", "trident", "w_angel_l", "w_angel_lm", "w_angel_r", "w_angel_rm", "w_aqua_l", "w_aqua_lm", "w_aqua_r", "w_aqua_rm", "w_diamond_l", "w_diamond_lm", "w_diamond_r", "w_diamond_rm", "w_pulse_l", "w_pulse_lm", "w_pulse_r", "w_pulse_rm", "y_body_b", "y_body_s", "y_body_s_m", "y_face", "y_head_b", "y_head_s", "y_head_s_m", "y_leg_f", "y_legb_s", "y_legb_s_m", "y_legf_s", "y_legf_s_m", "y_tail_s", "y_tail_s_m", "yagik_b", "yagik_f", "yagik_face", "yagik_fur", "yagik_l", "yagik_r"}
     function Tex.loadItem(name)
         local path = "WannacryAssets/it_" .. Tex.ITEM_REV .. "_" .. name .. ".png"
         if not isfile(path) then
@@ -4612,60 +4612,72 @@ do (function()
         if not id then return false end
         local d = Instance.new("Decal")
         d.Texture = id
-        d.Face = face
+        d.Face = face or NF.Front
         d.Parent = p
         return true
     end
-    -- невидимая тонкая карточка с картинкой с обеих сторон
-    local function card(g, front, back, w, h, cf, fb)
-        local p = P(g, "block", V3(w, h, 0.04), cf, fb or C3(235, 235, 240), M.SmoothPlastic, {Transparency = 1})
-        local ok = img(p, front, NF.Front)
-        img(p, back or front, NF.Back)
-        if not ok then p.Transparency = 0 end
+    -- картинка на отдельной невидимой пластинке, всегда на её передней грани
+    -- (у декалей на задней грани Roblox картинка переворачивается — из-за этого всё «инвертировалось»)
+    local function panel(g, name, w, h, pos, n, up)
+        local cf = CFrame.lookAt(pos, pos + n, up or V3(0, 1, 0))
+        local p = P(g, "block", V3(w, h, 0.02), cf, C3(255, 255, 255), M.SmoothPlastic, {Transparency = 1})
+        if not img(p, name) then p:Destroy() end
         return p
     end
-    -- коробка: виды спереди/сзади/слева/справа на гранях (+ непрозрачное ядро по желанию)
-    local function photoBox(g, pre, size, cf, core, coreCol)
-        local p = P(g, "block", size, cf, coreCol or C3(235, 235, 240), M.SmoothPlastic, {Transparency = 1})
-        local ok = img(p, pre .. "_f", NF.Front)
-        img(p, pre .. "_b", NF.Back)
-        img(p, pre .. "_l", NF.Left)
-        img(p, pre .. "_r", NF.Right)
-        if core then P(g, "block", core, cf, coreCol) end
-        if not ok then p.Transparency = 0 end
-        return p
+    -- коробка с картинками на гранях: faces = {f, b, l, r, t}; где картинки нет — просто цвет/мех
+    local function tbox(g, size, cf, col, faces, furName, furSize)
+        local core = P(g, "block", size, cf, col)
+        if furName then tex(core, furName, furSize or 0.5, (furSize or 0.5) * 0.66) end
+        local e = 0.012
+        local hx, hy, hz = size.X / 2 + e, size.Y / 2 + e, size.Z / 2 + e
+        local function at(off, n, w, h, name, up)
+            if not name then return end
+            panel(g, name, w, h, (cf * CF(off)).Position, cf:VectorToWorldSpace(n), up and cf:VectorToWorldSpace(up) or cf.UpVector)
+        end
+        at(V3(0, 0, -hz), V3(0, 0, -1), size.X, size.Y, faces.f)
+        at(V3(0, 0, hz), V3(0, 0, 1), size.X, size.Y, faces.b)
+        at(V3(-hx, 0, 0), V3(-1, 0, 0), size.Z, size.Y, faces.l)
+        at(V3(hx, 0, 0), V3(1, 0, 0), size.Z, size.Y, faces.r)
+        at(V3(0, hy, 0), V3(0, 1, 0), size.X, size.Z, faces.t, V3(0, 0, -1))
+        return core
     end
-    -- крылья-карточки: половинки картинки, разведены буквой V назад.
-    -- Сзади — картинка как есть, спереди — её зеркало (иначе при повороте камеры крыло «выворачивалось»).
-    local WING_SCALE = 1.4
+    -- двусторонняя карточка: две пластинки спиной к спине, у каждой картинка на передней грани
+    local function card(g, front, back, w, h, cf)
+        local a = panel(g, front, w, h, (cf * CF(0, 0, -0.012)).Position, cf.LookVector, cf.UpVector)
+        local b = panel(g, back or front, w, h, (cf * CF(0, 0, 0.012)).Position, -cf.LookVector, cf.UpVector)
+        return a, b
+    end
+    -- крылья-карточки: половинки картинки, разведены буквой V назад
+    local WING_SCALE = 1.65
     local function cardWings(R, key, wPx, hPx, s, alpha, gapPx, yOff)
         s = s * WING_SCALE
         local W, H = wPx * s / math.cos(alpha), hPx * s
         for i, side in ipairs({1, -1}) do
             local g = G(R, "w" .. i, CF(side * gapPx * s / 2, yOff + 0.15, 0.12), true)
             local nm = "w_" .. key .. (side == 1 and "_r" or "_l")
+            -- спереди (со стороны лица) видна зеркальная, сзади — как на картинке
             card(g, nm .. "m", nm, W, H, CF(side * W / 2, 0, 0))
         end
         R.data.alpha = alpha
     end
-    -- плавная анимация: в покое еле дышат, при ходьбе машут, в прыжке — сильно
+    -- плавная активная анимация: в покое дышат, при ходьбе машут, в прыжке — сильно
     local function cardWingAnim(R, t, dt, ctx)
         local d = R.data
         local a = d.alpha or 0.3
         local spd = (ctx and ctx.speed) or 0
-        local target = (ctx and ctx.air) and 1 or math.min(math.max((spd - 1) / 15, 0), 1)
-        local k = (dt and dt > 0) and (1 - math.exp(-3.5 * dt)) or 1
+        local target = (ctx and ctx.air) and 1.25 or math.min(math.max((spd - 1) / 14, 0), 1)
+        local k = (dt and dt > 0) and (1 - math.exp(-3 * dt)) or 1
         d.m = (d.m or target) + (target - (d.m or target)) * k
         local m = d.m
-        local freq = 0.55 + 1.35 * m
+        local freq = 0.8 + 1.7 * m
         if dt and dt > 0 then
             d.ph = ((d.ph or 0) + dt * freq * TAU) % TAU
         else
             d.ph = t * freq * TAU
         end
-        local f = sin(d.ph) * (0.06 + 0.26 * m)
-        local lift = sin(d.ph - 0.6) * (0.03 + 0.1 * m)
-        local open = a + 0.1 * m
+        local f = sin(d.ph) * (0.12 + 0.38 * m)
+        local lift = sin(d.ph - 0.7) * (0.06 + 0.16 * m)
+        local open = a + 0.12 * m
         R.pose.w1 = ANG(0, -(open + f), 0) * ANG(0, 0, lift)
         R.pose.w2 = ANG(0, open + f, 0) * ANG(0, 0, -lift)
     end
@@ -4673,8 +4685,8 @@ do (function()
     D({id = "angel", name = "Angel Wings", cat = "Wings", anchor = "back", view = "back",
         desc = "Белые пернатые крылья",
         build = function(R)
-            cardWings(R, "angel", 38, 50, 0.0415, rad(10), 6, 0.3)
-            light(fxPart(G(R, "fx"), CF(0, 0.4, 0.4)), C3(255, 240, 210), 8, 0.5)
+            cardWings(R, "angel", 38, 50, 0.0415 * 1.3, rad(10), 6, -0.15)
+            light(fxPart(G(R, "fx"), CF(0, 0.2, 0.4)), C3(255, 240, 210), 8, 0.5)
         end,
         anim = cardWingAnim})
     D({id = "diamond_wings", name = "Даймонд", cat = "Wings", anchor = "back", view = "back",
@@ -4736,70 +4748,71 @@ do (function()
             end
         end})
 
+    -- Пингвин: тело, крылышки, клюв и лапки — отдельные детали со своими кусками текстуры
     D({id = "penguin", name = "Пингвин", cat = "Hats", col = "Аква", anchor = "hat", view = "front", hideHead = true,
         desc = "Пингвин сидит на голове",
         build = function(R)
-            local s = 0.00719
-            local H = 160 * s
+            local s = 0.0072
+            local navy, yel = C3(38, 35, 60), C3(240, 200, 60)
             local g = G(R, "body", IDENT, true)
-            local W, Dp = 142 * s, 143 * s
-            local cf = CF(0, H / 2 - 0.08, 0.05)
-            photoBox(g, "peng", V3(W, H, Dp), cf)
-            -- сплошное тело внутри, сверху — текстура спины
-            local core = P(g, "block", V3(W * 0.94, H * 0.97, Dp * 0.94), cf * CF(0, -H * 0.015, 0), C3(38, 35, 60))
-            tex(core, "it_peng_top", 0.4, 0.25, nil, {NF.Top})
+            local W, H, Dp = 98 * s, 136 * s, 0.7
+            local by = -0.08 + 24 * s + H / 2
+            tbox(g, V3(W, H, Dp), CF(0, by, 0.05), navy, {f = "p_front", b = "p_back", l = "p_side", r = "p_side_m", t = nil}, "it_peng_top", 0.4)
+            -- клюв
+            tbox(g, V3(41 * s, 19 * s, 0.13), CF(0, by + H / 2 - 58 * s, 0.05 - Dp / 2 - 0.065), yel, {f = "p_beak"})
+            -- лапки торчат вперёд
+            for _, sx in ipairs({1, -1}) do
+                tbox(g, V3(23 * s, 47 * s, 0.26), CF(sx * 0.155, -0.08 + 23.5 * s, 0.05 - Dp / 2 - 0.1), yel, {f = "p_foot"})
+            end
+            -- крылышки по бокам
+            for i, sx in ipairs({1, -1}) do
+                local f = G(R, "f" .. i, CF(sx * (W / 2 + 0.035), by + H * 0.25, 0.05), true)
+                local sz = V3(0.06, H * 0.62, Dp * 0.62)
+                tbox(f, sz, CF(0, -sz.Y / 2, 0), C3(30, 28, 50), {l = (sx < 0) and "p_side" or nil, r = (sx > 0) and "p_side_m" or nil})
+            end
         end,
         anim = function(R, t, dt, ctx)
             local walk = (ctx.speed > 1) and 1 or 0
-            R.pose.body = ANG(0, 0, sin(t * (2 + 6 * walk)) * (0.03 + 0.06 * walk))
+            local sway = ANG(0, 0, sin(t * (2 + 6 * walk)) * (0.03 + 0.06 * walk))
+            R.pose.body = sway
+            local flap = 0.06 + 0.22 * walk
+            R.pose.f1 = ANG(0, 0, rad(8) + sin(t * 7) * flap)
+            R.pose.f2 = ANG(0, 0, -rad(8) - sin(t * 7) * flap)
         end})
+
+    -- Маска: куб-голова, повязка нарисована на гранях (2D), сзади без лица
     D({id = "lamb_mask", name = "Маска", cat = "Hats", col = "Барашка", anchor = "hat", view = "front", hideHead = true,
         desc = "Голубая маска-голова с коричневой повязкой и жёлтым узлом сзади",
         build = function(R)
             local g = G(R, "m")
             local S, top = 1.42, 0.09
-            local cy = top - S / 2
-            local head = P(g, "block", V3(S, S, S), CF(0, cy, 0), C3(76, 240, 226))
-            img(head, "mask_f", NF.Front)
-            img(head, "mask_bh", NF.Back)
-            tex(head, "it_mask_side", S, 0.3, nil, {NF.Left, NF.Right, NF.Top})
-            -- повязка буквой П: сзади и по бокам
-            local t = 0.375
-            local by = top - 0.852
-            local brown = C3(104, 71, 56)
-            local back = P(g, "block", V3(S + 2 * t, 0.5, t), CF(0, by, S / 2 + t / 2), brown)
-            img(back, "mask_band_b", NF.Back)
-            tex(back, "it_mask_band_s", 0.42, 0.5, nil, {NF.Left, NF.Right})
-            for _, sx in ipairs({1, -1}) do
-                local sd = P(g, "block", V3(t, 0.5, S), CF(sx * (S / 2 + t / 2), by, 0), brown)
-                tex(sd, "it_mask_band_s", 0.42, 0.5, nil, {NF.Left, NF.Right, NF.Front})
-            end
+            tbox(g, V3(S, S, S), CF(0, top - S / 2, 0), C3(76, 240, 226),
+                {f = "m_front", b = "m_back", l = "m_side", r = "m_side", t = "m_top"})
         end})
 
+    -- Ягик: прежняя модель (лапы шагают, хвост виляет), на каждой детали — свой кусок картинки
     D({id = "yagik", name = "Ягик", cat = "Pets", col = "Ягик", anchor = "pet", view = "front",
         desc = "Пятнистый детёныш ягуара: машет хвостом и перебирает лапами",
         build = function(R)
-            local yel, cream, dark = C3(240, 196, 100), C3(250, 236, 205), C3(70, 42, 24)
-            -- мех и мордочка — из присланной картинки
-            local function fur(p, sz) tex(p, "it_yagik_fur", sz or 0.6, (sz or 0.6) * 0.66) return p end
+            local yel, cream = C3(240, 196, 100), C3(250, 236, 205)
+            local FUR = "it_yagik_fur"
             local g = G(R, "body")
-            fur(P(g, "block", V3(0.62, 0.5, 0.95), CF(0, -0.05, 0.1), yel))
-            local head = fur(P(g, "block", V3(0.6, 0.55, 0.5), CF(0, 0.32, -0.45), yel))
-            img(head, "yagik_face", NF.Front)
+            tbox(g, V3(0.62, 0.5, 0.95), CF(0, -0.05, 0.1), yel, {l = "y_body_s", r = "y_body_s_m", b = "y_body_b"}, FUR, 0.6)
+            tbox(g, V3(0.6, 0.55, 0.5), CF(0, 0.32, -0.45), yel, {f = "y_face", l = "y_head_s", r = "y_head_s_m", b = "y_head_b"}, FUR, 0.6)
             for _, sx in ipairs({1, -1}) do
-                fur(P(g, "block", V3(0.16, 0.16, 0.08), CF(sx * 0.21, 0.66, -0.42), yel), 0.3)
-                P(g, "block", V3(0.08, 0.08, 0.02), CF(sx * 0.21, 0.65, -0.465), dark)
+                tbox(g, V3(0.16, 0.16, 0.08), CF(sx * 0.21, 0.66, -0.42), yel, {}, FUR, 0.3)
+                P(g, "block", V3(0.08, 0.08, 0.02), CF(sx * 0.21, 0.65, -0.465), C3(70, 42, 24))
             end
-            local legs = {{0.19, -0.2}, {-0.19, -0.2}, {0.19, 0.4}, {-0.19, 0.4}}
+            local legs = {{0.19, -0.2, "y_legf_s"}, {-0.19, -0.2, "y_legf_s"}, {0.19, 0.4, "y_legb_s"}, {-0.19, 0.4, "y_legb_s"}}
             for i, l in ipairs(legs) do
                 local lg = G(R, "l" .. i, CF(l[1], -0.28, l[2]), true)
-                fur(P(lg, "block", V3(0.18, 0.36, 0.18), CF(0, -0.18, 0), yel), 0.4)
+                tbox(lg, V3(0.18, 0.36, 0.18), CF(0, -0.18, 0), yel, {f = (i <= 2) and "y_leg_f" or nil, l = l[3], r = l[3] .. "_m"}, FUR, 0.4)
                 P(lg, "block", V3(0.19, 0.06, 0.19), CF(0, -0.35, 0), cream)
             end
             local tl = G(R, "tail", CF(0, 0.08, 0.56), true)
-            fur(P(tl, "block", V3(0.1, 0.1, 0.3), CF(0, 0.06, 0.12) * ANG(rad(-30), 0, 0), yel), 0.3)
-            fur(P(tl, "block", V3(0.1, 0.1, 0.26), CF(0, 0.24, 0.27) * ANG(rad(-62), 0, 0), yel), 0.3)
-            P(tl, "block", V3(0.11, 0.13, 0.11), CF(0, 0.38, 0.33), dark)
+            tbox(tl, V3(0.1, 0.1, 0.3), CF(0, 0.06, 0.12) * ANG(rad(-30), 0, 0), yel, {l = "y_tail_s", r = "y_tail_s_m"}, FUR, 0.3)
+            tbox(tl, V3(0.1, 0.1, 0.26), CF(0, 0.24, 0.27) * ANG(rad(-62), 0, 0), yel, {l = "y_tail_s", r = "y_tail_s_m"}, FUR, 0.3)
+            P(tl, "block", V3(0.11, 0.13, 0.11), CF(0, 0.38, 0.33), C3(70, 42, 24))
         end,
         anim = function(R, t, dt, ctx)
             local walk = (ctx.speed > 1) and 1 or 0.15
@@ -4813,9 +4826,9 @@ do (function()
         desc = "Белая дверь-питомец: сама открывается и закрывается",
         build = function(R)
             local s = 0.00933
-            local W, H, Dp = 102 * s, 150 * s, 22 * s
+            local W, H, Dp = 102 * s, 150 * s, 0.14
             local g = G(R, "door", CF(-W / 2, 0, 0), true)
-            photoBox(g, "door", V3(W, H, Dp), CF(W / 2, 0, 0), V3(W * 0.97, H * 0.97, Dp * 0.6), C3(236, 236, 236))
+            tbox(g, V3(W, H, Dp), CF(W / 2, 0, 0), C3(236, 236, 236), {f = "d_front", b = "d_back", l = "d_side", r = "d_side"})
         end,
         anim = function(R, t)
             R.pose.door = CF(0, abs(sin(t * 2.4)) * 0.08, 0) * ANG(0, rad(28) * (0.5 + 0.5 * sin(t * 1.4)), 0)
@@ -5230,10 +5243,10 @@ do (function()
                         if a:IsA("Attachment") and HEAD_ATT[a.Name] then isHead = true; break end
                     end
                     if isHead and want then
-                        h.LocalTransparencyModifier = 1
-                        hiddenH[h] = true
-                    elseif hiddenH[h] then
-                        h.LocalTransparencyModifier = 0
+                        if hiddenH[h] == nil then hiddenH[h] = h.Transparency end
+                        if h.Transparency ~= 1 then h.Transparency = 1 end
+                    elseif hiddenH[h] ~= nil then
+                        h.Transparency = hiddenH[h]
                         hiddenH[h] = nil
                     end
                 end
@@ -5241,7 +5254,7 @@ do (function()
         end
     end
     function Cos.restoreHead()
-        for h in pairs(hiddenH) do pcall(function() h.LocalTransparencyModifier = 0 end) end
+        for h, tr in pairs(hiddenH) do pcall(function() h.Transparency = tr end) end
         hiddenH = setmetatable({}, {__mode = "k"})
     end
     local rctx = {speed = 0, air = false}
@@ -5250,7 +5263,7 @@ do (function()
         if ScriptUnloaded then
             if not restoredHead then
                 restoredHead = true
-                for h in pairs(hiddenH) do pcall(function() h.LocalTransparencyModifier = 0 end) end
+                for h, tr in pairs(hiddenH) do pcall(function() h.Transparency = tr end) end
             end
             return
         end
@@ -7498,9 +7511,16 @@ end
 
 -- ================= ВКЛАДКА INFO: экзекьютор + апдейт-лист =================
 do (function()
-    local VERSION = "3.5.4"
+    local VERSION = "3.6"
     local LOADSTRING = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/wannacry.lua"))()'
     local CHANGELOG = {
+        {v = "3.6", date = "18.11.2026", items = {
+            "Пингвин и Ягик собраны из деталей, на каждой — свой кусок присланной текстуры (без прозрачных краёв)",
+            "Маска: повязка теперь нарисована на маске (2D), сзади больше нет лица",
+            "Фикс: крылья и картинки больше не переворачиваются на обратной стороне",
+            "Крылья больше и машут активнее; Angel Wings ниже и крупнее",
+            "Шапки-головы надёжнее прячут волосы",
+        }},
         {v = "3.5.4", date = "18.11.2026", items = {
             "Ягик: вернул прежнюю модельку (лапы, хвост, уши), но мех и мордочка теперь из присланной картинки",
         }},
