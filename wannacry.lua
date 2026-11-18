@@ -965,6 +965,37 @@ do (function()
         local dk = 1 - 0.35 * smooth(0.06, 0.0, side) - 0.25 * smooth(0.96, 1.0, y)
         return r * dk, g * dk, b * dk, 1
     end
+    -- Пятнистый мех (бесшовный) для питомцев и деталей коллекции «Ягик»
+    def("jag_fur", 64, 64, function(u, v)
+        local n = fbm(u, v, 4, 3, 181)
+        local k = 0.82 + 0.26 * n
+        local r, g, b = 1.0 * k, 0.76 * k, 0.24 * k
+        local P = 3
+        local cx, cy = floor(u * P), floor(v * P)
+        local best = 9
+        for oy = -1, 1 do
+            for ox = -1, 1 do
+                local gx, gy = (cx + ox) % P, (cy + oy) % P
+                local px = cx + ox + 0.22 + 0.56 * hash2(gx, gy, 183)
+                local py = cy + oy + 0.22 + 0.56 * hash2(gx, gy, 187)
+                local d = sqrt((u * P - px) ^ 2 + (v * P - py) ^ 2) * (0.9 + 0.22 * vnoise(u * 12, v * 12, 12, 12, 189))
+                if d < best then best = d end
+            end
+        end
+        local ring = smooth(0.34, 0.28, best) * smooth(0.12, 0.18, best)
+        if best < 0.16 then r, g, b = r * 0.93, g * 0.72, b * 0.55 end
+        r, g, b = mix(r, 0.24, ring), mix(g, 0.13, ring), mix(b, 0.05, ring)
+        -- пиксельная зернистость под «кубический» стиль
+        local px = 0.94 + 0.08 * hash2(floor(u * 16), floor(v * 16), 191)
+        return r * px, g * px, b * px, 1
+    end)
+    -- Пиксельный шум (серый, тонируется) — «кубический» вид
+    def("voxel", 64, 64, function(u, v)
+        local s = 0.84 + 0.16 * hash2(floor(u * 8), floor(v * 8), 193)
+        s *= 0.97 + 0.03 * hash2(floor(u * 32), floor(v * 32), 197)
+        return s, s, s, 1
+    end)
+
     for i = 1, JAG_N do
         def("jaguar_" .. i, 96, 24, function(u, v)
             return jaguarCape(u, (i - 1 + v) / JAG_N)
@@ -4808,13 +4839,142 @@ do (function()
         end,
         anim = capeAnim})
 
-    D({id = "jaguar_cape", name = "Ягуар", cat = "Capes", anchor = "cape", view = "back",
+    D({id = "jaguar_cape", name = "Ягуар", cat = "Capes", col = "Ягик", anchor = "cape", view = "back",
         desc = "Жёлтый пятнистый плащ с мордой ягуара",
         build = function(R)
             buildCape(R, {slices = "jaguar", lining = C3(70, 42, 16), fb = C3(235, 170, 40),
                 trim = C3(55, 32, 12), clasp = GOLD})
         end,
         anim = capeAnim})
+
+    -- =========================== КОЛЛЕКЦИИ ===========================
+    local function vox(p, tint, s) tex(p, "voxel", s or 0.5, s or 0.5, tint) return p end
+    local function fur(p, s) tex(p, "jag_fur", s or 0.6, s or 0.6) return p end
+
+    D({id = "yagik", name = "Ягик", cat = "Pets", col = "Ягик", anchor = "pet", view = "front",
+        desc = "Пятнистый детёныш ягуара: машет хвостом и перебирает лапами",
+        build = function(R)
+            local yel, cream, dark = C3(250, 190, 60), C3(250, 236, 205), C3(55, 32, 20)
+            local g = G(R, "body")
+            fur(P(g, "block", V3(0.62, 0.5, 0.95), CF(0, -0.05, 0.1), yel))
+            fur(P(g, "block", V3(0.6, 0.55, 0.5), CF(0, 0.32, -0.45), yel))
+            vox(P(g, "block", V3(0.32, 0.22, 0.12), CF(0, 0.2, -0.74), cream), C3(255, 245, 225))
+            P(g, "block", V3(0.14, 0.08, 0.04), CF(0, 0.28, -0.81), dark)
+            for _, s in ipairs({1, -1}) do
+                P(g, "block", V3(0.1, 0.1, 0.03), CF(s * 0.15, 0.41, -0.71), C3(15, 12, 10))
+                P(g, "block", V3(0.04, 0.04, 0.02), CF(s * 0.15 - 0.025, 0.43, -0.727), C3(255, 255, 255), M.Neon)
+                fur(P(g, "block", V3(0.16, 0.16, 0.08), CF(s * 0.21, 0.66, -0.42), yel), 0.3)
+                P(g, "block", V3(0.08, 0.08, 0.02), CF(s * 0.21, 0.65, -0.465), dark)
+            end
+            local legs = {{0.19, -0.2}, {-0.19, -0.2}, {0.19, 0.4}, {-0.19, 0.4}}
+            for i, l in ipairs(legs) do
+                local lg = G(R, "l" .. i, CF(l[1], -0.28, l[2]), true)
+                fur(P(lg, "block", V3(0.18, 0.36, 0.18), CF(0, -0.18, 0), yel), 0.4)
+                P(lg, "block", V3(0.19, 0.06, 0.19), CF(0, -0.35, 0), cream)
+            end
+            local tl = G(R, "tail", CF(0, 0.08, 0.56), true)
+            fur(P(tl, "block", V3(0.1, 0.1, 0.3), CF(0, 0.06, 0.12) * ANG(rad(-30), 0, 0), yel), 0.3)
+            fur(P(tl, "block", V3(0.1, 0.1, 0.26), CF(0, 0.24, 0.27) * ANG(rad(-62), 0, 0), yel), 0.3)
+            P(tl, "block", V3(0.11, 0.13, 0.11), CF(0, 0.38, 0.33), dark)
+        end,
+        anim = function(R, t, dt, ctx)
+            local walk = (ctx.speed > 1) and 1 or 0.15
+            for i = 1, 4 do
+                local ph = (i == 1 or i == 4) and 0 or math.pi
+                R.pose["l" .. i] = ANG(sin(t * 9 + ph) * 0.45 * walk, 0, 0)
+            end
+            R.pose.tail = ANG(0, sin(t * 4) * rad(25), 0)
+        end})
+
+    D({id = "flyuga_hat", name = "Флюга", cat = "Hats", col = "Флюга", anchor = "hat", view = "front",
+        desc = "Ступенчатая шапка: половина чёрная, половина розовая",
+        build = function(R)
+            local g = G(R, "h", CF(0, -0.18, 0))
+            local black, pink = C3(52, 48, 54), C3(246, 158, 190)
+            local tiers = {{1.5, 0.36, 0.0}, {1.24, 0.34, 0.35}, {0.98, 0.3, 0.67}}
+            for _, t in ipairs(tiers) do
+                local w, h, y = t[1], t[2], t[3]
+                vox(P(g, "block", V3(w / 2, h, w), CF(-w / 4, y, 0), black), C3(110, 100, 110), 0.35)
+                vox(P(g, "block", V3(w / 2, h, w), CF(w / 4, y, 0), pink), C3(255, 200, 220), 0.35)
+            end
+        end})
+
+    D({id = "door_pet", name = "Дверь", cat = "Pets", col = "Флюга", anchor = "pet", view = "front",
+        desc = "Белая дверца-питомец: сама открывается и закрывается",
+        build = function(R)
+            local g = G(R, "door", CF(-0.4, 0, 0), true)
+            vox(P(g, "block", V3(0.8, 1.3, 0.12), CF(0.4, 0, 0), C3(240, 240, 238)), C3(255, 255, 255), 0.3)
+            for _, z in ipairs({-0.07, 0.07}) do
+                P(g, "block", V3(0.5, 0.13, 0.02), CF(0.36, 0.4, z), C3(25, 25, 28))
+                P(g, "block", V3(0.14, 0.52, 0.02), CF(0.24, 0.12, z), C3(25, 25, 28))
+            end
+            P(g, "ball", V3(0.09, 0.09, 0.09), CF(0.68, -0.08, -0.09), C3(170, 170, 175), M.SmoothPlastic, {Reflectance = 0.4})
+            P(g, "ball", V3(0.09, 0.09, 0.09), CF(0.68, -0.08, 0.09), C3(170, 170, 175), M.SmoothPlastic, {Reflectance = 0.4})
+            for _, y in ipairs({0.45, -0.45}) do P(g, "block", V3(0.05, 0.16, 0.14), CF(0.01, y, 0), C3(130, 130, 136)) end
+        end,
+        anim = function(R, t)
+            R.pose.door = CF(0, abs(sin(t * 2.4)) * 0.08, 0) * ANG(0, rad(28) * (0.5 + 0.5 * sin(t * 1.4)), 0)
+        end})
+
+    D({id = "nn_katana", name = "Катана", cat = "Wings", col = "НН", anchor = "back", view = "back",
+        desc = "Изогнутая катана за спиной: чёрная цуба, обмотанная рукоять",
+        build = function(R)
+            local g = G(R, "k", CF(0, 0.05, 0.22) * ANG(0, 0, rad(-40)))
+            local steel = C3(236, 238, 245)
+            tex(P(g, "block", V3(0.17, 0.82, 0.14), CF(0, 1.32, 0), C3(70, 60, 60)), "wrap", 0.15, 0.3, C3(150, 140, 140))
+            P(g, "block", V3(0.19, 0.1, 0.16), CF(0, 1.77, 0), C3(40, 35, 38))
+            P(g, "block", V3(0.42, 0.07, 0.3), CF(0, 0.88, 0), C3(25, 25, 28))
+            P(g, "block", V3(0.13, 0.09, 0.15), CF(0, 0.81, 0), C3(160, 160, 168), M.SmoothPlastic, {Reflectance = 0.4})
+            local cur = CF(0, 0.77, 0)
+            for i = 1, 6 do
+                P(g, "block", V3(0.08, 0.43, 0.19 - i * 0.012), cur * CF(0, -0.2, 0), steel, M.SmoothPlastic, {Reflectance = 0.45})
+                P(g, "block", V3(0.02, 0.43, 0.04), cur * CF(0, -0.2, -0.09 + i * 0.006), C3(255, 255, 255), M.Neon)
+                cur = cur * CF(0, -0.4, 0) * ANG(rad(-3.5), 0, 0)
+            end
+            tri(g, 0.14, 0.22, 0.07, cur * CF(0, -0.09, 0) * ANG(0, PI / 2, PI), steel)
+        end})
+
+    D({id = "trident", name = "Трезубец", cat = "Wings", col = "Барашка", anchor = "back", view = "back",
+        desc = "Бирюзовый трезубец за спиной со светящимися зубцами",
+        build = function(R)
+            local g = G(R, "t", CF(0, -0.1, 0.24) * ANG(0, 0, rad(-35)))
+            local teal, tip = C3(80, 178, 162), C3(200, 252, 238)
+            tex(vcyl(g, 3.0, 0.12, IDENT, teal, M.SmoothPlastic, {Reflectance = 0.15}), "metal", 0.4, 0.4, C3(160, 255, 235))
+            vox(P(g, "block", V3(0.62, 0.11, 0.11), CF(0, 1.52, 0), teal), C3(160, 255, 235), 0.3)
+            vox(P(g, "block", V3(0.11, 0.62, 0.11), CF(0, 1.88, 0), teal), C3(160, 255, 235), 0.3)
+            for _, s in ipairs({1, -1}) do
+                vox(P(g, "block", V3(0.11, 0.46, 0.11), CF(s * 0.26, 1.8, 0), teal), C3(160, 255, 235), 0.3)
+                P(g, "block", V3(0.12, 0.14, 0.12), CF(s * 0.26, 2.06, 0), tip, M.Neon)
+                tri(g, 0.1, 0.12, 0.05, CF(s * 0.31, 1.66, 0) * ANG(0, 0, s * rad(-35)), teal)
+            end
+            P(g, "block", V3(0.12, 0.16, 0.12), CF(0, 2.22, 0), tip, M.Neon)
+            P(g, "block", V3(0.18, 0.14, 0.18), CF(0, -1.52, 0), C3(60, 130, 120))
+            sparkles(fxPart(g, CF(0, 2.0, 0)), C3(170, 255, 235), 3, 0.15)
+            light(fxPart(g, CF(0, 2.0, 0)), C3(140, 255, 230), 6, 0.6)
+        end})
+
+    D({id = "lamb_mask", name = "Маска", cat = "Hats", col = "Барашка", anchor = "hat", view = "front",
+        desc = "Голубой кубический шлем с лицом и повязкой с узлом сзади",
+        build = function(R)
+            local g = G(R, "m")
+            local cyan, ct = C3(70, 214, 214), C3(140, 255, 250)
+            local skin = C3(246, 190, 150)
+            vox(P(g, "block", V3(1.42, 0.14, 1.42), CF(0, 0.03, 0), cyan), ct)
+            vox(P(g, "block", V3(1.42, 1.3, 0.14), CF(0, -0.62, 0.69), cyan), ct)
+            for _, s in ipairs({1, -1}) do
+                vox(P(g, "block", V3(0.14, 1.3, 1.42), CF(s * 0.69, -0.62, 0), cyan), ct)
+                vox(P(g, "block", V3(0.2, 0.88, 0.14), CF(s * 0.61, -0.85, -0.69), cyan), ct)
+                P(g, "block", V3(0.2, 0.2, 0.04), CF(s * 0.3, -0.62, -0.72), C3(15, 15, 18))
+            end
+            vox(P(g, "block", V3(1.42, 0.42, 0.14), CF(0, -0.17, -0.69), cyan), ct)
+            vox(P(g, "block", V3(1.02, 0.86, 0.06), CF(0, -0.84, -0.68), skin), C3(255, 215, 185), 0.3)
+            P(g, "block", V3(0.18, 0.18, 0.03), CF(0.42, -0.1, -0.765), C3(255, 255, 255))
+            P(g, "block", V3(0.14, 0.14, 0.03), CF(0, -0.52, -0.715), C3(255, 255, 255))
+            P(g, "block", V3(0.42, 0.18, 0.04), CF(0.1, -1.02, -0.72), C3(205, 60, 60))
+            P(g, "block", V3(0.16, 0.16, 0.045), CF(-0.2, -1.02, -0.72), C3(15, 15, 18))
+            tex(P(g, "block", V3(1.72, 0.32, 0.16), CF(0, -0.7, 0.72), C3(110, 72, 48)), "leather", 0.4, 0.4, C3(175, 125, 90))
+            vox(P(g, "block", V3(0.26, 0.5, 0.08), CF(0, -0.78, 0.82), C3(225, 180, 40)), C3(255, 220, 90), 0.3)
+        end})
 
     -- ---------- монтаж на персонажа ----------
     local function charAnchor(char, kind)
@@ -5280,8 +5440,9 @@ do (function()
 
     local info = new("Frame", {Position = UDim2.new(0.56, 8, 0, 14), Size = UDim2.new(0.44, -22, 1, -28), BackgroundTransparency = 1, ZIndex = 2, Parent = feat})
     local nameL = new("TextLabel", {Size = UDim2.new(1, 0, 0, 26), BackgroundTransparency = 1, Text = "—", FontFace = F.Bold, TextSize = 19, TextColor3 = Glass.Text, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 3, Parent = info})
-    local chip = new("TextLabel", {Position = UDim2.fromOffset(0, 32), Size = UDim2.fromOffset(84, 22), Text = "", FontFace = F.Semi, TextSize = 11, TextColor3 = Glass.Text, ZIndex = 3, Parent = info})
+    local chip = new("TextLabel", {Position = UDim2.fromOffset(0, 32), Size = UDim2.fromOffset(0, 22), AutomaticSize = Enum.AutomaticSize.X, Text = "", FontFace = F.Semi, TextSize = 11, TextColor3 = Glass.Text, ZIndex = 3, Parent = info})
     liquid(chip, {radius = "full", transparency = 0.86, sheen = false, glint = false, lens = false})
+    new("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), Parent = chip})
     local descL = new("TextLabel", {Position = UDim2.fromOffset(0, 62), Size = UDim2.new(1, 0, 0, 54), BackgroundTransparency = 1, Text = "", FontFace = F.Regular, TextSize = 12, TextColor3 = Glass.TextDim, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 3, Parent = info})
     local eqRow = new("Frame", {Position = UDim2.fromOffset(0, 124), Size = UDim2.new(1, 0, 0, 40), ZIndex = 3, Parent = info})
     soft(eqRow, {radius = 14, transparency = 0.94, sheen = false})
@@ -5302,7 +5463,7 @@ do (function()
         if FP.model then FP.model:Destroy(); FP.model = nil end
         FP.def, FP.R = def, nil
         nameL.Text = def.name
-        chip.Text = CAT_RU[def.cat] or def.cat
+        chip.Text = (CAT_RU[def.cat] or def.cat) .. (def.col and ("  ·  " .. def.col) or "")
         descL.Text = def.desc or ""
         eqSwitch.set(State.Cos[def.id] == true, true)
         task.spawn(function()
@@ -5337,12 +5498,18 @@ do (function()
 
     -- ---------- фильтр ----------
     local tiles = {}
-    local function applyFilter(catRu)
+    -- фильтры: категория + коллекция
+    local COLS = {"Все", "Ягик", "Флюга", "Барашка", "НН"}
+    local curCat, curCol = "Все", "Все"
+    local function applyFilter()
         for _, t in ipairs(tiles) do
-            t.frame.Visible = (catRu == "Все") or (CAT_RU[t.def.cat] == catRu)
+            local okCat = (curCat == "Все") or (CAT_RU[t.def.cat] == curCat)
+            local okCol = (curCol == "Все") or (t.def.col == curCol)
+            t.frame.Visible = okCat and okCol
         end
     end
-    makeSegmented(CosmeticsScroll, "Категория", CAT_ORDER, "Все", function(opt) applyFilter(opt) end)
+    makeSegmented(CosmeticsScroll, "Категория", CAT_ORDER, "Все", function(opt) curCat = opt; applyFilter() end)
+    makeSegmented(CosmeticsScroll, "Коллекция", COLS, "Все", function(opt) curCol = opt; applyFilter() end)
 
     -- ---------- сетка карточек ----------
     local grid = new("Frame", {Size = UDim2.new(1, -4, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = nextOrder(), Parent = CosmeticsScroll})
@@ -6983,9 +7150,15 @@ end
 
 -- ================= ВКЛАДКА INFO: экзекьютор + апдейт-лист =================
 do (function()
-    local VERSION = "2.9"
+    local VERSION = "3.0"
     local LOADSTRING = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/wannacry.lua"))()'
     local CHANGELOG = {
+        {v = "3.0", date = "18.11.2026", items = {
+            "Фильтр «Коллекция» в Cosmetics: Ягик, Флюга, Барашка, НН",
+            "Ягик — питомец-детёныш ягуара; плащ «Ягуар» теперь в коллекции Ягик",
+            "Флюга — двухцветная шапка и питомец «Дверь»",
+            "Барашка — трезубец за спиной и маска-шлем; НН — катана за спиной",
+        }},
         {v = "2.9", date = "18.11.2026", items = {
             "Новый плащ «Ягуар»: жёлтый пятнистый мех и морда ягуара, развевается на бегу",
         }},
