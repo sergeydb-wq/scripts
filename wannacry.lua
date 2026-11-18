@@ -886,6 +886,91 @@ do (function()
         return s, s, s * 1.02, 1
     end)
 
+    -- Плащ «Ягуар»: жёлтый мех с розетками + морда ягуара. Картинка целиком задаётся
+    -- в координатах плаща (x 0..1 по ширине, y 0..1 сверху вниз) и режется на JAG_N полос.
+    local JAG_N, JAG_W, JAG_H = 9, 2.1, 3.24       -- полосы, ширина и высота плаща в студах
+    local function jagSpots(x, y, scale, seed)
+        local u, v = x * scale, y * scale * (JAG_H / JAG_W)
+        local cx, cy = floor(u), floor(v)
+        local best = 9
+        for oy = -1, 1 do
+            for ox = -1, 1 do
+                local px = cx + ox + 0.2 + 0.6 * hash2(cx + ox, cy + oy, seed)
+                local py = cy + oy + 0.2 + 0.6 * hash2(cx + ox, cy + oy, seed + 4)
+                local d = sqrt((u - px) ^ 2 + (v - py) ^ 2) * (0.88 + 0.28 * vnoise(u * 3, v * 3, 64, 64, seed + 9))
+                if d < best then best = d end
+            end
+        end
+        return best
+    end
+    local function ellipse(x, y, cx, cy, rx, ry) return ((x - cx) / rx) ^ 2 + ((y - cy) / ry) ^ 2 end
+    local function jaguarCape(x, y)
+        -- физические координаты в студах, центр морды
+        local X, Y = x * JAG_W, y * JAG_H
+        local n = fbm(x, y, 5, 3, 161)
+        local k = 0.8 + 0.28 * n
+        local r, g, b = 1.0 * k, (0.70 + 0.08 * (1 - y)) * k, 0.12 * k
+        -- розетки по всему плащу
+        local d = jagSpots(x, y, 5.5, 163)
+        local ring = smooth(0.34, 0.29, d) * smooth(0.13, 0.19, d)
+        if d < 0.16 then r, g, b = r * 0.94, g * 0.74, b * 0.5 end
+        r, g, b = mix(r, 0.2, ring), mix(g, 0.11, ring), mix(b, 0.04, ring)
+        -- морда
+        local fx, fy = X - JAG_W / 2, Y - 1.25
+        local head = math.min(ellipse(fx, fy, 0, -0.04, 0.44, 0.38),
+            ellipse(fx, fy, -0.2, 0.12, 0.3, 0.27), ellipse(fx, fy, 0.2, 0.12, 0.3, 0.27))
+        local earL, earR = ellipse(fx, fy, -0.33, -0.36, 0.14, 0.13), ellipse(fx, fy, 0.33, -0.36, 0.14, 0.13)
+        if head < 1 or earL < 1 or earR < 1 then
+            local fk = 0.92 + 0.14 * fbm(x, y, 12, 2, 167)
+            r, g, b = 1.0 * fk, 0.74 * fk, 0.18 * fk
+            if earL < 0.42 or earR < 0.42 then r, g, b = 0.3, 0.17, 0.08 end
+            -- пятна на лбу и щеках
+            for _, p in ipairs({{-0.1, -0.24, 0.035}, {0.09, -0.27, 0.03}, {0, -0.18, 0.025}, {-0.24, -0.15, 0.035},
+                {0.25, -0.14, 0.035}, {-0.03, -0.32, 0.03}, {0.17, -0.2, 0.025}, {-0.17, -0.3, 0.025},
+                {-0.36, 0.06, 0.03}, {0.36, 0.07, 0.03}, {-0.31, 0.18, 0.025}, {0.32, 0.19, 0.025}}) do
+                if ellipse(fx, fy, p[1], p[2], p[3], p[3]) < 1 then r, g, b = 0.2, 0.11, 0.05 end
+            end
+            -- светлая морда
+            local muzzle = math.min(ellipse(fx, fy, -0.1, 0.19, 0.15, 0.12), ellipse(fx, fy, 0.1, 0.19, 0.15, 0.12))
+            if muzzle < 1 then r, g, b = 0.99, 0.93, 0.8 end
+            if ellipse(fx, fy, 0, 0.32, 0.12, 0.06) < 1 then r, g, b = 0.97, 0.92, 0.82 end
+            -- глаза: янтарные, вертикальный зрачок, тёмная подводка
+            for _, sx in ipairs({-0.17, 0.17}) do
+                local e = ellipse(fx, fy, sx, -0.04, 0.095, 0.05)
+                if e < 1.5 then r, g, b = 0.13, 0.07, 0.03 end
+                if e < 1 then
+                    r, g, b = 0.78, 0.62, 0.1
+                    if e < 0.4 then r, g, b = 0.96, 0.82, 0.25 end
+                    if math.abs(fx - sx) < 0.016 then r, g, b = 0.04, 0.03, 0.02 end
+                end
+            end
+            -- переносица и нос
+            if math.abs(fx) < 0.05 and fy > -0.02 and fy < 0.08 then r, g, b = r * 0.93, g * 0.85, b * 0.7 end
+            local ny = fy - 0.08
+            if ny >= 0 and ny < 0.07 and math.abs(fx) < 0.085 - ny * 1.1 then r, g, b = 0.3, 0.13, 0.1 end
+            -- рот
+            if math.abs(fx) < 0.011 and fy > 0.15 and fy < 0.22 then r, g, b = 0.22, 0.11, 0.07 end
+            for _, sx in ipairs({-1, 1}) do
+                if math.abs(ellipse(fx, fy, sx * 0.055, 0.215, 0.055, 0.035) - 1) < 0.3 and fy > 0.215 then r, g, b = 0.22, 0.11, 0.07 end
+            end
+            -- точки усов
+            for _, p in ipairs({{-0.15, 0.16}, {-0.21, 0.2}, {-0.15, 0.23}, {0.15, 0.16}, {0.21, 0.2}, {0.15, 0.23}}) do
+                if ellipse(fx, fy, p[1], p[2], 0.014, 0.014) < 1 then r, g, b = 0.3, 0.17, 0.1 end
+            end
+            -- тёмный кант по контуру
+            if math.min(head, earL, earR) > 0.8 then r, g, b = mix(r, 0.22, 0.75), mix(g, 0.12, 0.75), mix(b, 0.05, 0.75) end
+        end
+        -- лёгкое затемнение по краям плаща
+        local side = math.min(x, 1 - x)
+        local dk = 1 - 0.35 * smooth(0.06, 0.0, side) - 0.25 * smooth(0.96, 1.0, y)
+        return r * dk, g * dk, b * dk, 1
+    end
+    for i = 1, JAG_N do
+        def("jaguar_" .. i, 96, 24, function(u, v)
+            return jaguarCape(u, (i - 1 + v) / JAG_N)
+        end)
+    end
+
     -- ---------- рендер ----------
     local function render(defn)
         local w, h, fn, mirror = defn.w, defn.h, defn.fn, defn.mirror
@@ -4671,7 +4756,14 @@ do (function()
             local g = G(R, "c" .. i, IDENT, true)
             local w = 2.05 + i * 0.05
             local p = P(g, "block", V3(w, CAPE_H + 0.03, 0.05), CF(0, -CAPE_H / 2, 0), o.lining)
-            if not tex(p, o.tex, o.su or w, o.sv or CAPE_H, nil, {BACK}, nil, o.continuous and (i * CAPE_H) or nil) then
+            local ok
+            if o.slices then
+                -- картинка нарезана на полосы: каждая полоса получает свой кусок целиком
+                ok = tex(p, o.slices .. "_" .. (i + 1), w, CAPE_H + 0.03, nil, {BACK})
+            else
+                ok = tex(p, o.tex, o.su or w, o.sv or CAPE_H, nil, {BACK}, nil, o.continuous and (i * CAPE_H) or nil)
+            end
+            if not ok then
                 p.Color = o.fb
             end
             if i == CAPE_N - 1 then
@@ -4713,6 +4805,14 @@ do (function()
         build = function(R)
             buildCape(R, {tex = "galaxy", su = 1.4, sv = 1.4, continuous = true, lining = C3(25, 10, 45), fb = C3(45, 20, 90),
                 trim = C3(170, 100, 255), trimMat = M.Neon, clasp = C3(190, 160, 255), sparkle = C3(210, 180, 255)})
+        end,
+        anim = capeAnim})
+
+    D({id = "jaguar_cape", name = "Ягуар", cat = "Capes", anchor = "cape", view = "back",
+        desc = "Жёлтый пятнистый плащ с мордой ягуара",
+        build = function(R)
+            buildCape(R, {slices = "jaguar", lining = C3(70, 42, 16), fb = C3(235, 170, 40),
+                trim = C3(55, 32, 12), clasp = GOLD})
         end,
         anim = capeAnim})
 
@@ -6883,9 +6983,12 @@ end
 
 -- ================= ВКЛАДКА INFO: экзекьютор + апдейт-лист =================
 do (function()
-    local VERSION = "2.8"
+    local VERSION = "2.9"
     local LOADSTRING = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/wannacry.lua"))()'
     local CHANGELOG = {
+        {v = "2.9", date = "18.11.2026", items = {
+            "Новый плащ «Ягуар»: жёлтый пятнистый мех и морда ягуара, развевается на бегу",
+        }},
         {v = "2.8", date = "18.11.2026", items = {
             "ESP, ники, HP, метки «wannacry» и облачка рисуются 2D-панелями в мире — движок рисует их вместе с персонажами, Aspect их не сдвигает",
             "Рамка ESP теперь охватывает персонажа целиком, с ногами",
