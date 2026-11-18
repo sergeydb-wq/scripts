@@ -1058,7 +1058,7 @@ do (function()
 
     Tex.ITEM_BASE = "https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/items/"
     Tex.ITEM_REV = "r1"
-    Tex.ITEMS = {"door_b", "door_f", "door_l", "door_r", "hat_black", "hat_pink", "katana", "mask_band_b", "mask_band_s", "mask_bh", "mask_f", "mask_side", "peng_b", "peng_f", "peng_l", "peng_r", "trident", "w_angel_l", "w_angel_lm", "w_angel_r", "w_angel_rm", "w_aqua_l", "w_aqua_lm", "w_aqua_r", "w_aqua_rm", "w_diamond_l", "w_diamond_lm", "w_diamond_r", "w_diamond_rm", "w_pulse_l", "w_pulse_lm", "w_pulse_r", "w_pulse_rm", "yagik_b", "yagik_f", "yagik_l", "yagik_r"}
+    Tex.ITEMS = {"door_b", "door_f", "door_l", "door_r", "hat_black", "hat_pink", "katana", "mask_band_b", "mask_band_s", "mask_bh", "mask_f", "mask_side", "peng_b", "peng_f", "peng_l", "peng_r", "peng_top", "trident", "w_angel_l", "w_angel_lm", "w_angel_r", "w_angel_rm", "w_aqua_l", "w_aqua_lm", "w_aqua_r", "w_aqua_rm", "w_diamond_l", "w_diamond_lm", "w_diamond_r", "w_diamond_rm", "w_pulse_l", "w_pulse_lm", "w_pulse_r", "w_pulse_rm", "yagik_b", "yagik_f", "yagik_fur", "yagik_l", "yagik_r"}
     function Tex.loadItem(name)
         local path = "WannacryAssets/it_" .. Tex.ITEM_REV .. "_" .. name .. ".png"
         if not isfile(path) then
@@ -4592,7 +4592,7 @@ do (function()
     local function vox(p, tint, s) tex(p, "voxel", s or 0.5, s or 0.5, tint) return p end
     local function fur(p, s) tex(p, "jag_fur", s or 0.6, s or 0.6) return p end
 
-    D({id = "flyuga_hat", name = "Флюга", cat = "Hats", col = "Флюга", anchor = "hat", view = "front",
+    D({id = "flyuga_hat", name = "Флюга", cat = "Hats", col = "Флюга", anchor = "hat", view = "front", hideHead = true,
         desc = "Ступенчатая шапка: половина чёрная, половина розовая",
         build = function(R)
             local g = G(R, "h", CF(0, -0.18, 0))
@@ -4736,19 +4736,24 @@ do (function()
             end
         end})
 
-    D({id = "penguin", name = "Пингвин", cat = "Hats", col = "Аква", anchor = "hat", view = "front",
+    D({id = "penguin", name = "Пингвин", cat = "Hats", col = "Аква", anchor = "hat", view = "front", hideHead = true,
         desc = "Пингвин сидит на голове",
         build = function(R)
             local s = 0.00719
             local H = 160 * s
             local g = G(R, "body", IDENT, true)
-            photoBox(g, "peng", V3(142 * s, H, 143 * s), CF(0, H / 2 - 0.08, 0.05), V3(0.55, H * 0.8, 0.72), C3(36, 33, 58))
+            local W, Dp = 142 * s, 143 * s
+            local cf = CF(0, H / 2 - 0.08, 0.05)
+            photoBox(g, "peng", V3(W, H, Dp), cf)
+            -- сплошное тело внутри, сверху — текстура спины
+            local core = P(g, "block", V3(W * 0.94, H * 0.97, Dp * 0.94), cf * CF(0, -H * 0.015, 0), C3(38, 35, 60))
+            tex(core, "it_peng_top", 0.4, 0.25, nil, {NF.Top})
         end,
         anim = function(R, t, dt, ctx)
             local walk = (ctx.speed > 1) and 1 or 0
             R.pose.body = ANG(0, 0, sin(t * (2 + 6 * walk)) * (0.03 + 0.06 * walk))
         end})
-    D({id = "lamb_mask", name = "Маска", cat = "Hats", col = "Барашка", anchor = "hat", view = "front",
+    D({id = "lamb_mask", name = "Маска", cat = "Hats", col = "Барашка", anchor = "hat", view = "front", hideHead = true,
         desc = "Голубая маска-голова с коричневой повязкой и жёлтым узлом сзади",
         build = function(R)
             local g = G(R, "m")
@@ -4776,10 +4781,20 @@ do (function()
         build = function(R)
             local s = 0.0082
             local g = G(R, "body", IDENT, true)
-            card(g, "yagik_f", "yagik_b", 63 * s, 122 * s, CF(0, -0.6 + 61 * s, 0))
-            local side = P(g, "block", V3(0.04, 115 * s, 143 * s), CF(0, -0.6 + 57.5 * s, 0), C3(250, 200, 90), M.SmoothPlastic, {Transparency = 1})
-            img(side, "yagik_l", NF.Left)
-            img(side, "yagik_r", NF.Right)
+            local W, H, Dp = 63 * s, 122 * s, 143 * s
+            local ground = -0.6
+            local top = ground + H
+            -- коробка с видами (спереди/сзади/слева/справа)
+            photoBox(g, "yagik", V3(W, H, Dp), CF(0, ground + H / 2, 0))
+            -- объём внутри: голова и туловище с текстурой меха (по силуэту сбоку)
+            local function core(x0, x1, y0, y1, wk)
+                local z = ((x0 + x1) / 2 - 71.5) * s
+                local y = top - (y0 + y1) / 2 * s
+                local p = P(g, "block", V3(W * wk, (y1 - y0) * s, (x1 - x0) * s), CF(0, y, z), C3(236, 190, 90))
+                tex(p, "it_yagik_fur", 0.3, 0.2)
+            end
+            core(5, 43, 8, 45, 0.82)
+            core(46, 108, 40, 73, 0.72)
         end,
         anim = function(R, t, dt, ctx)
             local walk = (ctx.speed > 1) and 1 or 0
@@ -5187,9 +5202,53 @@ do (function()
             end
         end
     end
+    -- шапки-головы (маска, пингвин, флюга) прячут волосы/шапки персонажа, чтобы не торчали
+    local HEAD_ATT = {HatAttachment = true, HairAttachment = true, FaceFrontAttachment = true, FaceCenterAttachment = true}
+    local hiddenH = setmetatable({}, {__mode = "k"})
+    local function hideHead(char, entries)
+        if not char then return end
+        local want = false
+        for id in pairs(entries) do
+            local d = Cos.byId[id]
+            if d and d.hideHead then want = true; break end
+        end
+        for _, c in ipairs(char:GetChildren()) do
+            if c:IsA("Accessory") then
+                local h = c:FindFirstChild("Handle")
+                if h and h:IsA("BasePart") then
+                    local isHead = false
+                    for _, a in ipairs(h:GetChildren()) do
+                        if a:IsA("Attachment") and HEAD_ATT[a.Name] then isHead = true; break end
+                    end
+                    if isHead and want then
+                        h.LocalTransparencyModifier = 1
+                        hiddenH[h] = true
+                    elseif hiddenH[h] then
+                        h.LocalTransparencyModifier = 0
+                        hiddenH[h] = nil
+                    end
+                end
+            end
+        end
+    end
+    function Cos.restoreHead()
+        for h in pairs(hiddenH) do pcall(function() h.LocalTransparencyModifier = 0 end) end
+        hiddenH = setmetatable({}, {__mode = "k"})
+    end
     local rctx = {speed = 0, air = false}
+    local restoredHead = false
     connect(RunService.RenderStepped, function(dt)
-        if ScriptUnloaded then return end
+        if ScriptUnloaded then
+            if not restoredHead then
+                restoredHead = true
+                for h in pairs(hiddenH) do pcall(function() h.LocalTransparencyModifier = 0 end) end
+            end
+            return
+        end
+        pcall(hideHead, player.Character, Cos.active)
+        for _, r in pairs(Cos.remote) do
+            if r.char then pcall(hideHead, r.char, r.entries or {}) end
+        end
         local bulkP, bulkC = {}, {}
         if next(Cos.active) ~= nil then
             local hrp = readCtx(ctx, player.Character, true)
@@ -7168,6 +7227,7 @@ local function Unload()
     pcall(Features.applyDBDAnimations, false)
     pcall(Cos.unmountAll)
     pcall(function() Cos.ugcSetEnabled(false) end)
+    pcall(function() Cos.restoreHead() end)
     pcall(Cos.clearAllRemote)
     pcall(function() if WC_PROJ.gui then WC_PROJ.gui:Destroy() end end)
     pcall(function() if WC_PROJ.parts then WC_PROJ.parts:Destroy() end end)
@@ -7429,9 +7489,14 @@ end
 
 -- ================= ВКЛАДКА INFO: экзекьютор + апдейт-лист =================
 do (function()
-    local VERSION = "3.5.2"
+    local VERSION = "3.5.3"
     local LOADSTRING = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/wannacry.lua"))()'
     local CHANGELOG = {
+        {v = "3.5.3", date = "18.11.2026", items = {
+            "Маска, Пингвин и шапка Флюга прячут твои волосы/шапки (у тебя и у юзеров скрипта), ничего не торчит",
+            "Пингвин сверху теперь сплошной с текстурой спины",
+            "Ягик стал объёмным: голова и туловище с мехом, сверху больше не плоский крест",
+        }},
         {v = "3.5.2", date = "18.11.2026", items = {
             "Крылья больше в 1.4 раза, плавно машут при ходьбе и сильнее в прыжке",
             "Фикс: крылья больше не выворачиваются при повороте камеры",
