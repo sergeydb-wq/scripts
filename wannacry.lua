@@ -126,7 +126,7 @@ local Themes = {
 local State = {
     CurrentTheme = "Black",
     FogEnabled = false, FogSettings = {Density = 0.4, Offset = 0.25, Color = Color3.fromRGB(199,199,199), Decay = Color3.fromRGB(106,112,125)},
-    SkyEnabled = false, SkyIndex = 1, SkyCelestial = true, SkyCustomId = "", AspectEnabled = false, AspectValue = 0.80, AspectComp = 2.0,
+    SkyEnabled = false, SkyIndex = 1, SkyCelestial = true, SkyCustomId = "", AspectEnabled = false, AspectValue = 0.80, AspectComp = 1.0,
     FullbrightEnabled = false, FullbrightBrightness = 3, MotionBlurEnabled = false, MotionBlurStrength = 50,
     WorldEnabled = false, WorldSettings = {Saturation = 0, Contrast = 0, Brightness = 0, TintColor = Color3.fromRGB(255,255,255)},
     JumpCircleEnabled = false, JumpCircleUseTheme = true, JumpCircleCustomColor = Color3.fromRGB(255,255,255), JumpCircleStyle = "segments", JumpCircleGlow = true,
@@ -941,7 +941,7 @@ do (function()
     -- Точка мира → пиксель экрана.
     -- Считаем по нормальной (ортонормированной) камере — так результат не зависит от того,
     -- как и сколько раз Aspect исказил матрицу камеры. Растяжение Aspect добавляем отдельно:
-    -- вертикаль от центра экрана умножается на k = сила^(-поправка). Поправку (State.AspectComp)
+    -- вертикаль от центра экрана умножается на k = сила^поправка (1 = как рендер Roblox). Поправку (State.AspectComp)
     -- можно подогнать ползунком в настройках Aspect — тогда ESP совпадает с картинкой при любой силе.
     function WC_PROJ.toScreen(pos)
         local cam = Workspace.CurrentCamera
@@ -954,7 +954,7 @@ do (function()
         if z >= -0.05 then return nil end
         if State.AspectEnabled then
             local v = math.max(State.AspectValue or 1, 0.05)
-            y = y * v ^ (-(State.AspectComp or 2))
+            y = y * v ^ (State.AspectComp or 1)
         end
         local vp = cam.ViewportSize
         if vp.X <= 0 or vp.Y <= 0 then return nil end
@@ -3387,7 +3387,7 @@ makeSection(VisualsScroll, "КАМЕРА")
 createCard(VisualsScroll, {title = "Aspect", desc = "Растянутое разрешение", key = "AspectEnabled",
     settings = function(p)
         makeSlider(p, "Сила", 0.5, 1.5, State.AspectValue, function(v) State.AspectValue = v end)
-        makeSlider(p, "Поправка ESP (двигай, пока рамки не встанут на игроков)", -3, 3, State.AspectComp, function(v) State.AspectComp = v; WC_PROJ.calibUntil = os.clock() + 2.5 end, 2)
+        makeSlider(p, "Поправка ESP (1 — по умолчанию)", -1, 3, State.AspectComp, function(v) State.AspectComp = v; WC_PROJ.calibUntil = os.clock() + 2.5 end, 2)
     end})
 
 createCard(VisualsScroll, {title = "Motion Blur", desc = "Размытие движения: даль, рывки, края", key = "MotionBlurEnabled",
@@ -6817,9 +6817,12 @@ end
 
 -- ================= ВКЛАДКА INFO: экзекьютор + апдейт-лист =================
 do (function()
-    local VERSION = "2.7.3"
+    local VERSION = "2.7.4"
     local LOADSTRING = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/wannacry.lua"))()'
     local CHANGELOG = {
+        {v = "2.7.4", date = "18.11.2026", items = {
+            "Aspect: ESP и метки сжимаются к центру ровно как картинка Roblox (правильное направление по умолчанию)",
+        }},
         {v = "2.7.3", date = "18.11.2026", items = {
             "Aspect: ползунок «Поправка ESP» — подгони один раз, и ESP/метки совпадут с картинкой при любой силе",
             "ESP и метки считаются по нормальной камере, растяжение Aspect применяется отдельно",
