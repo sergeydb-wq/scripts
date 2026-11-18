@@ -4920,6 +4920,10 @@ do (function()
     local function dropRemoteVisuals(r)
         for id, e in pairs(r.entries) do destroyEntry(e); r.entries[id] = nil end
         if r.tag then pcall(function() r.tag:Destroy() end); r.tag = nil end
+        for _, st in ipairs(r.ugcStash or {}) do
+            if st.parent and st.parent.Parent then pcall(function() st.acc.Parent = st.parent end) end
+        end
+        r.ugcStash = {}
         if Features.applyBodyTo then pcall(Features.applyBodyTo, nil, r.body, false, false) end
     end
     function Cos.syncRemote(r)
@@ -4944,13 +4948,29 @@ do (function()
             local ok, tag = pcall(makeTag, char)
             if ok then r.tag = tag else warn("[wannacry] tag: " .. tostring(tag)) end
         end
+        -- снятые им UGC: прячем у себя на его персонаже
+        r.ugcStash = r.ugcStash or {}
+        local want = r.ugc or {}
+        for i = #r.ugcStash, 1, -1 do
+            local st = r.ugcStash[i]
+            if not want[st.acc.Name] then
+                if st.parent and st.parent.Parent then pcall(function() st.acc.Parent = st.parent end) end
+                table.remove(r.ugcStash, i)
+            end
+        end
+        for _, c in ipairs(char:GetChildren()) do
+            if want[c.Name] and Cos.isRemovable and Cos.isRemovable(c) then
+                table.insert(r.ugcStash, {acc = c, parent = char})
+                pcall(function() c.Parent = nil end)
+            end
+        end
         local sig = tostring(r.korblox) .. tostring(r.headless)
         if sig ~= r.bodySig and Features.applyBodyTo then
             r.bodySig = sig
             pcall(Features.applyBodyTo, char, r.body, r.korblox, r.headless)
         end
     end
-    function Cos.setRemote(plr, ids, korblox, headless)
+    function Cos.setRemote(plr, ids, korblox, headless, ugc)
         if not plr or plr == player then return end
         local r = Cos.remote[plr.UserId]
         if not r then
@@ -4962,6 +4982,12 @@ do (function()
             if type(id) == "string" and Cos.byId[id] and n < 12 then want[id] = true; n += 1 end
         end
         r.want, r.korblox, r.headless = want, korblox == true, headless == true
+        local u = {}
+        for i, name in ipairs(type(ugc) == "table" and ugc or {}) do
+            if i > 40 then break end
+            if type(name) == "string" and #name <= 100 then u[name] = true end
+        end
+        r.ugc = u
         Cos.syncRemote(r)
     end
     function Cos.clearRemote(uid)
@@ -5186,6 +5212,7 @@ do (function()
             dirtyQueued = false
             Cos.avatarVer += 1
             if Cos.onAvatarDirty then pcall(Cos.onAvatarDirty) end
+            if Cos.onUgcChanged then pcall(Cos.onUgcChanged) end
         end)
     end
 
@@ -5222,6 +5249,51 @@ do (function()
         saveUgc()
         unstash()
         Cos.avatarDirty()
+    end
+    function Cos.ugcRestore(name)
+        Cos.ugc.removed[name] = nil
+        saveUgc()
+        for i = #Cos.ugc.stash, 1, -1 do
+            local st = Cos.ugc.stash[i]
+            if st.acc.Name == name then
+                if st.parent and st.parent.Parent then pcall(function() st.acc.Parent = st.parent end) end
+                table.remove(Cos.ugc.stash, i)
+            end
+        end
+        Cos.avatarDirty()
+    end
+    -- список для настроек: аксессуары на персонаже + уже убранные
+    function Cos.ugcItems()
+        local seen, out = {}, {}
+        local function add(name, removed)
+            if seen[name] then return end
+            seen[name] = true
+            table.insert(out, {name = name, removed = removed})
+        end
+        local char = player.Character
+        if char then
+            for _, c in ipairs(char:GetChildren()) do
+                if Cos.isRemovable(c) then add(c.Name, Cos.ugc.removed[c.Name] == true and State.UgcRemoveEnabled) end
+            end
+        end
+        for _, st in ipairs(Cos.ugc.stash) do add(st.acc.Name, true) end
+        for name in pairs(Cos.ugc.removed) do add(name, true) end
+        table.sort(out, function(a, b)
+            if a.removed ~= b.removed then return not a.removed end
+            return a.name:lower() < b.name:lower()
+        end)
+        return out
+    end
+    -- что отправлять в хаб
+    function Cos.ugcSendList()
+        local t = {}
+        if State.UgcRemoveEnabled then
+            for name in pairs(Cos.ugc.removed) do
+                if #t < 40 then table.insert(t, name) end
+            end
+            table.sort(t)
+        end
+        return t
     end
 
     local function watchChar(char)
@@ -5432,21 +5504,46 @@ do (function()
     createCard(CosmeticsScroll, {title = "Headless", desc = "Убирает голову и лицо (аксессуары остаются)", key = "HeadlessEnabled",
         onToggle = function(v) Features.applyHeadless(v); Cos.avatarDirty() end})
     if State.UgcRemoveEnabled == nil then State.UgcRemoveEnabled = false end
-    local ugcHint, ugcCountL = nil, nil
+    -- Удаление UGC: список аксессуаров в настройках карточки, у каждого кнопка «Удалить»/«Вернуть».
+    -- Убранное видно и другим юзерам скрипта (через хаб).
+    local ugcList, ugcCountL, ugcCard
+    local ugcRows = {}
     local function ugcRefresh()
-        if ugcCountL then
-            local n = Cos.ugcCount()
-            ugcCountL.Text = (n > 0) and ("Убрано предметов: " .. n) or "Ничего не убрано"
-        end
-        if ugcHint then
-            ugcHint.Text = State.UgcRemoveEnabled and "Наведи на предмет и кликни — убрать" or "Потяни, чтобы повернуть"
+        if not ugcList then return end
+        for _, r in ipairs(ugcRows) do r:Destroy() end
+        ugcRows = {}
+        local items = Cos.ugcItems()
+        local n = Cos.ugcCount()
+        ugcCountL.Text = (#items == 0) and "На персонаже нет аксессуаров" or ((n > 0) and ("Убрано: " .. n .. " из " .. #items) or ("Аксессуаров: " .. #items))
+        for i, it in ipairs(items) do
+            local row = new("Frame", {Size = UDim2.new(1, 0, 0, 34), LayoutOrder = i, ZIndex = 3, Parent = ugcList})
+            soft(row, {radius = 12, transparency = it.removed and 0.97 or 0.94, sheen = false})
+            new("TextLabel", {Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -112, 1, 0), BackgroundTransparency = 1, Text = it.name,
+                FontFace = F.Medium, TextSize = 12, TextColor3 = it.removed and Glass.TextMute or Glass.Text, TextXAlignment = Enum.TextXAlignment.Left,
+                TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 4, Parent = row})
+            local b = glassButton(row, it.removed and "Вернуть" or "Удалить", {AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -5, 0.5, 0), Size = UDim2.fromOffset(88, 26), ZIndex = 5},
+                {radius = "full", transparency = 0.88, textSize = 12, textColor = it.removed and Glass.Text or Color3.fromRGB(255, 140, 140)})
+            b.MouseButton1Click:Connect(guarded(function()
+                if it.removed then
+                    Cos.ugcRestore(it.name)
+                    SFX.play("on")
+                else
+                    if not State.UgcRemoveEnabled and ugcCard then ugcCard.switch.set(true) end
+                    Cos.ugcRemove(it.name)
+                    SFX.play("off")
+                end
+                ugcRefresh()
+            end))
+            table.insert(ugcRows, row)
         end
     end
-    createCard(CosmeticsScroll, {title = "Удаление UGC", desc = "Наведи на аксессуар в превью и кликни — он пропадёт (одежда не трогается)", key = "UgcRemoveEnabled",
+    ugcCard = createCard(CosmeticsScroll, {title = "Удаление UGC", desc = "Убирает аксессуары с персонажа (одежда не трогается), видно и юзерам скрипта", key = "UgcRemoveEnabled",
         onToggle = function(v) Cos.ugcSetEnabled(v); ugcRefresh() end,
         settings = function(p)
             ugcCountL = new("TextLabel", {Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1, Text = "", FontFace = F.Medium, TextSize = 12, TextColor3 = Glass.TextDim, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 1, ZIndex = 3, Parent = p})
-            local b = glassButton(p, "Вернуть все", {Size = UDim2.new(1, 0, 0, 32), LayoutOrder = 2, ZIndex = 4}, {radius = "full", transparency = 0.88, textSize = 13})
+            ugcList = new("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 2, ZIndex = 3, Parent = p})
+            new("UIListLayout", {Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = ugcList})
+            local b = glassButton(p, "Вернуть все", {Size = UDim2.new(1, 0, 0, 32), LayoutOrder = 3, ZIndex = 4}, {radius = "full", transparency = 0.88, textSize = 13})
             b.MouseButton1Click:Connect(guarded(function()
                 Cos.ugcRestoreAll()
                 ugcRefresh()
@@ -5454,6 +5551,7 @@ do (function()
             end))
             ugcRefresh()
         end})
+    Cos.onUgcChanged = function() pcall(ugcRefresh) end
 
     makeSection(CosmeticsScroll, "КОСМЕТИКА  ·  " .. #Cos.list .. " ПРЕДМЕТОВ")
 
@@ -5476,9 +5574,7 @@ do (function()
         AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -8), Size = UDim2.fromOffset(170, 22),
         Text = "Потяни, чтобы повернуть", FontFace = F.Medium, TextSize = 11, TextColor3 = Glass.Text, ZIndex = 5, Parent = pv,
     })
-    ugcHint = hint3
-    hint3.Size = UDim2.fromOffset(230, 22)
-    ugcRefresh()
+
     liquid(hint3, {radius = "full", transparency = 0.9, sheen = false, glint = false, lens = false})
 
     local info = new("Frame", {Position = UDim2.new(0.56, 8, 0, 14), Size = UDim2.new(0.44, -22, 1, -28), BackgroundTransparency = 1, ZIndex = 2, Parent = feat})
@@ -5513,9 +5609,7 @@ do (function()
     local function updateCam()
         cam.CFrame = Cos.cameraCF(FP.center, FP.radius, FP.yaw, FP.pitch, FOV)
     end
-    local clearGlow
     local function showFeatured(def, keepCam)
-        if clearGlow then clearGlow() end
         if FP.model then FP.model:Destroy(); FP.model = nil end
         FP.def, FP.R = def, nil
         nameL.Text = def.name
@@ -5540,91 +5634,8 @@ do (function()
     Cos.onAvatarDirty = function() Cos.previewAvatar() end
     Cos.onAvatarReady = function() if FP.def and not ScriptUnloaded then showFeatured(FP.def, true) end end
 
-    -- ---------- удаление UGC: подсветка под курсором ----------
-    local HV = {acc = nil, glow = {}, press = nil}
-    clearGlow = function()
-        for _, g in ipairs(HV.glow) do pcall(function() g:Destroy() end) end
-        HV.glow, HV.acc = {}, nil
-    end
-    local GLOW = Color3.fromRGB(255, 45, 70)
-    local function makeGlow(acc)
-        clearGlow()
-        HV.acc = acc
-        for _, p in ipairs(acc:GetDescendants()) do
-            if p:IsA("BasePart") and p.Transparency < 1 then
-                for _, k in ipairs({{1.04, 0.3}, {1.13, 0.72}}) do
-                    local ok, g = pcall(function()
-                        local was = p.Archivable
-                        p.Archivable = true
-                        local c = p:Clone()
-                        p.Archivable = was
-                        return c
-                    end)
-                    if ok and g then
-                        local mesh = g:FindFirstChildOfClass("SpecialMesh")
-                        for _, c in ipairs(g:GetChildren()) do
-                            if c ~= mesh then c:Destroy() end
-                        end
-                        if mesh then
-                            mesh.TextureId = ""
-                            mesh.Scale = mesh.Scale * k[1]
-                            mesh.VertexColor = Vector3.new(1, 1, 1)
-                        else
-                            g.Size = g.Size * k[1]
-                        end
-                        if g:IsA("MeshPart") then pcall(function() g.TextureID = "" end) end
-                        g.Color, g.Material, g.Transparency = GLOW, Enum.Material.Neon, k[2]
-                        g.Anchored, g.CanQuery, g.CanCollide, g.CastShadow = true, false, false, false
-                        g.CFrame = p.CFrame
-                        g.Parent = wm
-                        table.insert(HV.glow, g)
-                    end
-                end
-            end
-        end
-    end
-    local function pickAccessory()
-        if not State.UgcRemoveEnabled or not FP.model or not isOpen or not CosmeticsTab.Visible then return nil end
-        local m = UserInputService:GetMouseLocation()
-        local ap, as = vp.AbsolutePosition, vp.AbsoluteSize
-        if as.X < 2 or as.Y < 2 then return nil end
-        if m.X < ap.X or m.Y < ap.Y or m.X > ap.X + as.X or m.Y > ap.Y + as.Y then return nil end
-        local nx = (m.X - ap.X) / as.X * 2 - 1
-        local ny = 1 - (m.Y - ap.Y) / as.Y * 2
-        local t = math.tan(math.rad(cam.FieldOfView / 2))
-        local dir = cam.CFrame:VectorToWorldSpace(Vector3.new(nx * t * (as.X / as.Y), ny * t, -1)).Unit
-        local ok, hit = pcall(function() return wm:Raycast(cam.CFrame.Position, dir * 500) end)
-        if not ok or not hit then return nil end
-        local acc = hit.Instance:FindFirstAncestorOfClass("Accessory")
-        if acc and acc:FindFirstAncestor("WC_Avatar") and Cos.isRemovable(acc) then return acc end
-        return nil
-    end
-    local function updateHover()
-        local acc = pickAccessory()
-        if acc ~= HV.acc then
-            if acc then makeGlow(acc) else clearGlow() end
-        elseif acc then
-            -- превью вращается — обводка едет вместе (детали стоят на месте, крутится камера)
-        end
-    end
-
     vp.InputBegan:Connect(function(i)
-        if isPress(i) then FP.dragging = true; UI.dragLock = true; FP.last = pointerPos(i); HV.press = pointerPos(i) end
-    end)
-    connect(UserInputService.InputEnded, function(i)
-        if not isPress(i) or not HV.press then return end
-        local moved = (pointerPos(i) - HV.press).Magnitude
-        HV.press = nil
-        if moved > 6 or not State.UgcRemoveEnabled then return end
-        local acc = pickAccessory()
-        if not acc then return end
-        local name = acc.Name
-        clearGlow()
-        pcall(function() acc:Destroy() end)
-        Cos.ugcRemove(name)
-        ugcRefresh()
-        SFX.play("off")
-        notify("Удаление UGC", "Убрано: " .. name)
+        if isPress(i) then FP.dragging = true; UI.dragLock = true; FP.last = pointerPos(i) end
     end)
     connect(UserInputService.InputChanged, function(i)
         if not FP.dragging or not isMove(i) then return end
@@ -5736,8 +5747,7 @@ do (function()
             FP.R.t += dt
             if FP.def.anim then pcall(FP.def.anim, FP.R, FP.R.t, dt, FP.ctx) end
             Cos.placeRig(FP.R, FP.root, true)
-            if not FP.dragging and not HV.acc then FP.yaw += dt * 0.35 end
-            updateHover()
+            if not FP.dragging then FP.yaw += dt * 0.35 end
             updateCam()
         end
         if hovered and hovered.built then
@@ -6281,7 +6291,7 @@ do (function()
             if plr and plr ~= player then
                 seen[uid] = true
                 local cos = type(u.cos) == "table" and u.cos or {}
-                Cos.setRemote(plr, cos, u.korblox == true, u.headless == true)
+                Cos.setRemote(plr, cos, u.korblox == true, u.headless == true, type(u.ugc) == "table" and u.ugc or {})
                 table.insert(users, {userId = uid, name = plr.Name, display = plr.DisplayName, cos = cos, korblox = u.korblox == true, headless = u.headless == true})
             end
         end
@@ -6299,12 +6309,13 @@ do (function()
         while not ScriptUnloaded do
             if req and NET.hubUrl ~= "" then
                 local ids = myIds()
-                local sig = table.concat(ids, ",") .. "|" .. tostring(State.KorbloxEnabled) .. tostring(State.HeadlessEnabled)
+                local ugc = Cos.ugcSendList()
+                local sig = table.concat(ids, ",") .. "|" .. tostring(State.KorbloxEnabled) .. tostring(State.HeadlessEnabled) .. "|" .. table.concat(ugc, "\1")
                 if sig ~= lastSig or os.clock() - lastSent > 8 then
                     lastSig, lastSent = sig, os.clock()
                     local code, d = hubApi("POST", "/presence", nil, {
                         userId = player.UserId, name = player.Name, jobId = game.JobId, placeId = game.PlaceId,
-                        cos = ids, korblox = State.KorbloxEnabled == true, headless = State.HeadlessEnabled == true,
+                        cos = ids, korblox = State.KorbloxEnabled == true, headless = State.HeadlessEnabled == true, ugc = ugc,
                     })
                     H.ok = code == 200
                     if H.ok then applyPresence(d) end
@@ -7360,9 +7371,13 @@ end
 
 -- ================= ВКЛАДКА INFO: экзекьютор + апдейт-лист =================
 do (function()
-    local VERSION = "3.3"
+    local VERSION = "3.4"
     local LOADSTRING = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/wannacry.lua"))()'
     local CHANGELOG = {
+        {v = "3.4", date = "18.11.2026", items = {
+            "Удаление UGC: теперь список аксессуаров в настройках карточки с кнопками «Удалить» / «Вернуть»",
+            "Снятые UGC видят и другие юзеры скрипта (нужен обновлённый хаб)",
+        }},
         {v = "3.3", date = "18.11.2026", items = {
             "Korblox на персонаже — настоящая нога из каталога (139607718), двигается с анимацией; игла осталась только запасным вариантом",
             "Другие юзеры скрипта с Korblox тоже видны с настоящей ногой",
