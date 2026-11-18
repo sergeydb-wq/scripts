@@ -126,7 +126,7 @@ local Themes = {
 local State = {
     CurrentTheme = "Black",
     FogEnabled = false, FogSettings = {Density = 0.4, Offset = 0.25, Color = Color3.fromRGB(199,199,199), Decay = Color3.fromRGB(106,112,125)},
-    SkyEnabled = false, SkyIndex = 1, SkyCelestial = true, SkyCustomId = "", AspectEnabled = false, AspectValue = 0.80, AspectComp = 1.0,
+    SkyEnabled = false, SkyIndex = 1, SkyCelestial = true, SkyCustomId = "", AspectEnabled = false, AspectValue = 0.80, AspectComp = 0.0,
     FullbrightEnabled = false, FullbrightBrightness = 3, MotionBlurEnabled = false, MotionBlurStrength = 50,
     WorldEnabled = false, WorldSettings = {Saturation = 0, Contrast = 0, Brightness = 0, TintColor = Color3.fromRGB(255,255,255)},
     JumpCircleEnabled = false, JumpCircleUseTheme = true, JumpCircleCustomColor = Color3.fromRGB(255,255,255), JumpCircleStyle = "segments", JumpCircleGlow = true,
@@ -274,7 +274,10 @@ do (function()
         return (pcall(delfile, path(name)))
     end
     function WC_CFG.applyToState(d)
-        if type(d.state) == "table" then merge(State, dec(d.state)) end
+        if type(d.state) == "table" then
+            d.state.AspectComp = nil   -- смысл поправки менялся в 2.7.x — не тянем старые значения
+            merge(State, dec(d.state))
+        end
         if type(d.esp) == "table" then
             local c = dec(d.esp.color)
             if typeof(c) == "Color3" then currentESPColor = c end
@@ -938,12 +941,12 @@ end)() end
 -- стоит ровно на персонаже при любом разрешении, аспект-ратио, FOV и силе Aspect.
 local WC_PROJ = {items = {}, gui = nil}
 do (function()
-    -- Точка мира → пиксель экрана, точно как рендер Roblox.
-    -- Рендер строит вид из матрицы камеры как есть (транспонированием), поэтому любое
-    -- растяжение оси камеры (наш Aspect, старая копия скрипта, чужой скрипт) сжимает
-    -- картинку ровно во столько раз, какова длина оси. Берём оси «как есть» — и ESP
-    -- совпадает с картинкой без догадок. Вызывается с приоритетом Last (после всех искажений).
-    -- State.AspectComp — тонкая подстройка (степень от фактического растяжения, 1 = точно).
+    -- Точка мира → пиксель экрана.
+    -- Замер по скринам: 3D-мир рисуется по НОРМАЛЬНОЙ (ортонормированной) камере, растяжение
+    -- оси камеры на него не влияет — его подхватывают только GUI-проекции Roblox
+    -- (WorldToViewportPoint, стандартные ники), из-за чего они и съезжали. Поэтому проецируем
+    -- по единичным осям камеры и растяжение игнорируем. State.AspectComp — ручная подстройка
+    -- (степень от растяжения камеры, 0 = игнорировать, по умолчанию).
     WC_PROJ.stretchX, WC_PROJ.stretchY = 1, 1
     function WC_PROJ.toScreen(pos)
         local cam = Workspace.CurrentCamera
@@ -953,7 +956,7 @@ do (function()
         local sx, sy = X.Magnitude, Y.Magnitude
         WC_PROJ.stretchX, WC_PROJ.stretchY = sx, sy
         local rel = pos - cf.Position
-        local comp = State.AspectComp or 1
+        local comp = State.AspectComp or 0
         local x = rel:Dot(X.Unit) * sx ^ comp
         local y = rel:Dot(Y.Unit) * sy ^ comp
         local z = rel:Dot(Z.Unit)
@@ -3389,7 +3392,7 @@ makeSection(VisualsScroll, "КАМЕРА")
 createCard(VisualsScroll, {title = "Aspect", desc = "Растянутое разрешение", key = "AspectEnabled",
     settings = function(p)
         makeSlider(p, "Сила", 0.5, 1.5, State.AspectValue, function(v) State.AspectValue = v end)
-        makeSlider(p, "Поправка ESP (1 — по умолчанию)", -1, 3, State.AspectComp, function(v) State.AspectComp = v; WC_PROJ.calibUntil = os.clock() + 2.5 end, 2)
+        makeSlider(p, "Поправка ESP (0 — по умолчанию)", -1, 1, State.AspectComp, function(v) State.AspectComp = v; WC_PROJ.calibUntil = os.clock() + 2.5 end, 2)
     end})
 
 createCard(VisualsScroll, {title = "Motion Blur", desc = "Размытие движения: даль, рывки, края", key = "MotionBlurEnabled",
@@ -6819,9 +6822,12 @@ end
 
 -- ================= ВКЛАДКА INFO: экзекьютор + апдейт-лист =================
 do (function()
-    local VERSION = "2.7.5"
+    local VERSION = "2.7.6"
     local LOADSTRING = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/wannacry.lua"))()'
     local CHANGELOG = {
+        {v = "2.7.6", date = "18.11.2026", items = {
+            "ESP, ники, метки и облачка проецируются по нормальной камере — растяжение Aspect их больше не сдвигает",
+        }},
         {v = "2.7.5", date = "18.11.2026", items = {
             "ESP и метки берут фактическое растяжение камеры — совпадают с картинкой, даже если камеру тянет старая копия скрипта",
             "Info: живой индикатор растяжения камеры",
@@ -6951,7 +6957,7 @@ do (function()
     task.spawn(function()
         while not ScriptUnloaded and st.Parent do
             local y = WC_PROJ.stretchY or 1
-            local ok = math.abs(y - ((State.AspectEnabled and State.AspectValue) or 1)) < 0.02
+            local ok = State.AspectEnabled or math.abs(y - 1) < 0.02
             stL.Text = ("Растяжение камеры: <b>%.2f</b>%s"):format(y, ok and ""
                 or '  <font color="#ff8a8a">— камеру тянет что-то кроме Aspect (старая копия скрипта?). Перезайди в игру.</font>')
             task.wait(0.5)
