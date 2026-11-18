@@ -969,25 +969,86 @@ do (function()
         local py = (1 - y / (d * t)) * 0.5 * vp.Y
         return Vector2.new(px, py), d
     end
-    local function overlay()
+    -- ---------- 2D-панели В МИРЕ (рисует сам движок вместе с персонажами) ----------
+    -- Невидимая тонкая деталь, всегда повёрнута к камере, + SurfaceGui с фиксированным
+    -- холстом в пикселях. Размер детали подбирается под расстояние, чтобы холст на экране
+    -- выглядел ровно W×H пикселей. Раз это часть мира — любое растяжение (Aspect) искажает
+    -- её так же, как персонажа, и она не съезжает.
+    local function container()
         if WC_PROJ.gui and WC_PROJ.gui.Parent then return WC_PROJ.gui end
-        local g = Instance.new("ScreenGui")
-        g.Name = "WannacryOverlay"
-        g.ResetOnSpawn = false
-        g.IgnoreGuiInset = true
-        g.DisplayOrder = 996
-        g.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-        pcall(function() g.ScreenInsets = Enum.ScreenInsets.None end)
-        g.Parent = (gethui and gethui()) or game:GetService("CoreGui")
-        WC_PROJ.gui = g
-        return g
+        local f = Instance.new("Folder")
+        f.Name = "WannacryWorldUI"
+        f.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+        WC_PROJ.gui = f
+        return f
     end
-    -- прикрепить 2D-элемент к точке над деталью: top — студы над деталью, up — пиксели вверх
-    function WC_PROJ.attach(gui, part, top, up, maxDist)
-        gui.AnchorPoint = Vector2.new(0.5, 1)
-        gui.Visible = false
-        gui.Parent = overlay()
-        WC_PROJ.items[gui] = {part = part, top = top or 0, up = up or 0, max = maxDist or 120}
+    local function partsFolder()
+        if WC_PROJ.parts and WC_PROJ.parts.Parent then return WC_PROJ.parts end
+        local f = Instance.new("Folder")
+        f.Name = "WCWorldUI"
+        f.Parent = Workspace
+        WC_PROJ.parts = f
+        return f
+    end
+    function WC_PROJ.newPanel(name)
+        local part = Instance.new("Part")
+        part.Name = name or "WCPanel"
+        part.Anchored = true
+        part.CanCollide = false; part.CanQuery = false; part.CanTouch = false
+        part.CastShadow = false
+        part.Transparency = 1
+        part.Size = Vector3.new(1, 1, 0.02)
+        part.Parent = partsFolder()
+        local sg = Instance.new("SurfaceGui")
+        sg.Name = name or "WCPanel"
+        sg.Face = Enum.NormalId.Back
+        sg.AlwaysOnTop = true
+        sg.LightInfluence = 0
+        sg.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+        sg.CanvasSize = Vector2.new(100, 100)
+        sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        sg.Adornee = part
+        sg.Enabled = false
+        sg.Parent = container()
+        return {part = part, sg = sg}
+    end
+    function WC_PROJ.freePanel(pn)
+        if not pn then return end
+        pcall(function() pn.sg:Destroy() end)
+        pcall(function() pn.part:Destroy() end)
+    end
+    -- оси нормальной камеры и масштаб «студов на пиксель» на глубине точки
+    function WC_PROJ.camInfo(pos)
+        local cam = Workspace.CurrentCamera
+        if not cam then return nil end
+        local cf = cam.CFrame
+        local right, up, back = cf.XVector.Unit, cf.YVector.Unit, cf.ZVector.Unit
+        local depth = -(pos - cf.Position):Dot(back)
+        if depth <= 0.2 then return nil end
+        local vp = cam.ViewportSize
+        local spp = 2 * depth * math.tan(math.rad(cam.FieldOfView) / 2) / math.max(vp.Y, 1)
+        return right, up, spp, depth
+    end
+    -- поставить панель: холст W×H px, его точка (ax, ay) в долях холста — в мировой точке pos
+    function WC_PROJ.place(pn, pos, W, H, ax, ay)
+        local right, up, spp = WC_PROJ.camInfo(pos)
+        if not right then pn.sg.Enabled = false; return false end
+        W, H = math.max(W, 2), math.max(H, 2)
+        local center = pos + right * ((0.5 - ax) * W * spp) + up * ((ay - 0.5) * H * spp)
+        pn.part.Size = Vector3.new(W * spp, H * spp, 0.02)
+        pn.part.CFrame = CFrame.fromMatrix(center, right, up)
+        pn.sg.CanvasSize = Vector2.new(W, H)
+        pn.sg.Enabled = true
+        return true, spp
+    end
+
+    -- прикрепить элемент над деталью: top — студы над деталью, up — пиксели зазора снизу
+    function WC_PROJ.attach(gui, part, top, upPx, maxDist)
+        local pn = WC_PROJ.newPanel("WCTag")
+        gui.AnchorPoint = Vector2.new(0.5, 0)
+        gui.Position = UDim2.new(0.5, 0, 0, 0)
+        gui.Parent = pn.sg
+        WC_PROJ.items[gui] = {part = part, top = top or 0, up = upPx or 0, max = maxDist or 120, pn = pn}
         return gui
     end
     local BIND = "WC_Overlay_" .. tostring(math.random(1, 1e6))
@@ -997,23 +1058,25 @@ do (function()
         if ScriptUnloaded then
             pcall(function() RunService:UnbindFromRenderStep(BIND) end)
             if WC_PROJ.gui then WC_PROJ.gui:Destroy() end
+            if WC_PROJ.parts then WC_PROJ.parts:Destroy() end
             return
         end
         if next(WC_PROJ.items) == nil then return end
         local cam = Workspace.CurrentCamera
-        local origin = WC_PROJ.gui and WC_PROJ.gui.AbsolutePosition or Vector2.zero
         for gui, it in pairs(WC_PROJ.items) do
             if not gui.Parent or not it.part.Parent then
                 WC_PROJ.items[gui] = nil
-                if gui.Parent and not it.part.Parent then gui:Destroy() end
+                if gui.Parent then gui:Destroy() end
+                WC_PROJ.freePanel(it.pn)
             else
                 local pos = it.part.Position + Vector3.new(0, it.top, 0)
-                local sp = WC_PROJ.toScreen(pos)
-                if sp and cam and (pos - cam.CFrame.Position).Magnitude <= it.max then
-                    gui.Position = UDim2.fromOffset(sp.X - origin.X, sp.Y - origin.Y - it.up)
-                    gui.Visible = true
+                if cam and (pos - cam.CFrame.Position).Magnitude <= it.max then
+                    local sz = gui.AbsoluteSize
+                    local w = math.max(sz.X, 60) + 6
+                    local h = math.max(sz.Y, 16)
+                    WC_PROJ.place(it.pn, pos, w, h + it.up, 0.5, 1)
                 else
-                    gui.Visible = false
+                    it.pn.sg.Enabled = false
                 end
             end
         end
@@ -2447,7 +2510,7 @@ end
 -- =====================================================================
 local GuiService = game:GetService("GuiService")
 
-for _, n in ipairs({"WannacryUI", "WannacryHUD", "WannacryESP", "WannacryFX", "WannacryOverlay"}) do
+for _, n in ipairs({"WannacryUI", "WannacryHUD", "WannacryESP", "WannacryFX", "WannacryOverlay", "WannacryWorldUI"}) do
     local old = parentGui:FindFirstChild(n)
     if old then old:Destroy() end
 end
@@ -3653,25 +3716,33 @@ local function WorldToScreen(worldPos)
     return Vector2.new(sp.X - origin.X, sp.Y - origin.Y), true
 end
 
+-- ESP рисуется 2D-панелью В МИРЕ (WC_PROJ.newPanel): рамка, ник с дистанцией и полоска HP
+-- лежат на плоскости у персонажа, повёрнутой к камере. Движок рисует её вместе с миром,
+-- поэтому никакое растяжение (Aspect), FOV или разрешение её не сдвигают.
+local ESP_BODY = {"HumanoidRootPart", "Head", "UpperTorso", "LowerTorso", "Torso",
+    "Left Leg", "Right Leg", "LeftLowerLeg", "RightLowerLeg", "LeftFoot", "RightFoot"}
+local ESP_PAD_X, ESP_TOP, ESP_BOT, ESP_MIN_W = 12, 22, 2, 240
+
 local function hideESP(d)
-    d.box.Visible = false; d.nameLabel.Visible = false; d.hpBarBg.Visible = false
+    d.pn.sg.Enabled = false
 end
 
 local function CreateESPForModel(model)
     if not model or activeESPs[model] or CheckIfPlayer(model) then return end
     if not model:FindFirstChildOfClass("Humanoid") and not model:FindFirstChild("HumanoidRootPart") then return end
-    local d = {}
-    d.box = new("Frame", {Name = "ESPBox", BackgroundTransparency = 1, BorderSizePixel = 0, Visible = false, ZIndex = 1, Parent = ESPGui})
+    local d = {pn = WC_PROJ.newPanel("WCESP")}
+    local sg = d.pn.sg
+    d.box = new("Frame", {Name = "ESPBox", BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 1, Parent = sg})
     d.stroke = new("UIStroke", {Color = currentESPColor, Thickness = 2, Parent = d.box})
     new("UIStroke", {Color = Glass.Black, Thickness = 4, Transparency = 0.5, Parent = d.box})
     d.nameLabel = new("TextLabel", {
         Name = "ESPName", BackgroundTransparency = 1, TextColor3 = currentESPColor, TextStrokeTransparency = 0,
-        TextStrokeColor3 = Glass.Black, FontFace = F.Bold, TextSize = 14, Visible = false, ZIndex = 2,
-        AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(240, 20), Parent = ESPGui,
+        TextStrokeColor3 = Glass.Black, FontFace = F.Bold, TextSize = 14, ZIndex = 2,
+        Position = UDim2.fromOffset(0, 0), Size = UDim2.new(1, 0, 0, 20), Parent = sg,
     })
     local plr = Players:GetPlayerFromCharacter(model)
     d.baseName = plr and plr.DisplayName or model.Name
-    d.hpBarBg = new("Frame", {Name = "HPBarBg", BackgroundColor3 = Glass.Black, BackgroundTransparency = 0.5, BorderSizePixel = 0, Visible = false, ZIndex = 1, Parent = ESPGui})
+    d.hpBarBg = new("Frame", {Name = "HPBarBg", BackgroundColor3 = Glass.Black, BackgroundTransparency = 0.5, BorderSizePixel = 0, Visible = false, ZIndex = 1, Parent = sg})
     d.hpBarFill = new("Frame", {
         BackgroundColor3 = Color3.fromRGB(0, 255, 0), BorderSizePixel = 0, Size = UDim2.fromScale(1, 1),
         Position = UDim2.fromScale(0, 1), AnchorPoint = Vector2.new(0, 1), ZIndex = 2, Parent = d.hpBarBg,
@@ -3682,7 +3753,7 @@ end
 local function RemoveESP(model)
     local d = activeESPs[model]
     if not d then return end
-    d.box:Destroy(); d.nameLabel:Destroy(); d.hpBarBg:Destroy()
+    WC_PROJ.freePanel(d.pn)
     activeESPs[model] = nil
 end
 
@@ -3690,76 +3761,65 @@ local function updateESP(model, d)
     local hum = model:FindFirstChildOfClass("Humanoid")
     local hrp = model:FindFirstChild("HumanoidRootPart")
     if not hum or not hrp or hum.Health <= 0 then hideESP(d); return end
-    
+
     local minV = Vector3.new(math.huge, math.huge, math.huge)
     local maxV = Vector3.new(-math.huge, -math.huge, -math.huge)
-    
-    for _, partName in ipairs({"HumanoidRootPart", "Head", "UpperTorso", "LowerTorso", "Torso"}) do
+    for _, partName in ipairs(ESP_BODY) do
         local p = model:FindFirstChild(partName)
         if p and p:IsA("BasePart") then
             local sz, pos = p.Size, p.Position
-            minV = Vector3.new(math.min(minV.X, pos.X - sz.X/2), math.min(minV.Y, pos.Y - sz.Y/2), math.min(minV.Z, pos.Z - sz.Z/2))
-            maxV = Vector3.new(math.max(maxV.X, pos.X + sz.X/2), math.max(maxV.Y, pos.Y + sz.Y/2), math.max(maxV.Z, pos.Z + sz.Z/2))
+            minV = Vector3.new(math.min(minV.X, pos.X - sz.X / 2), math.min(minV.Y, pos.Y - sz.Y / 2), math.min(minV.Z, pos.Z - sz.Z / 2))
+            maxV = Vector3.new(math.max(maxV.X, pos.X + sz.X / 2), math.max(maxV.Y, pos.Y + sz.Y / 2), math.max(maxV.Z, pos.Z + sz.Z / 2))
         end
     end
-    
     if minV.X == math.huge then
-        local sz, pos = hrp.Size, hrp.Position
-        minV = pos - sz/2; maxV = pos + sz/2
+        minV, maxV = hrp.Position - hrp.Size / 2, hrp.Position + hrp.Size / 2
     end
-    
-    local corners = {}
-    local allOnScreen = true
-    for xi = 0, 1 do
-        for yi = 0, 1 do
-            for zi = 0, 1 do
-                local v = Vector3.new(xi == 0 and minV.X or maxV.X, yi == 0 and minV.Y or maxV.Y, zi == 0 and minV.Z or maxV.Z)
-                local sp, onScreen = WorldToScreen(v)
-                if not onScreen or not sp then allOnScreen = false; break end
-                table.insert(corners, sp)
-            end
-            if not allOnScreen then break end
-        end
-        if not allOnScreen then break end
+    local center = (minV + maxV) / 2
+    local right, up, spp = WC_PROJ.camInfo(center)
+    if not right then hideESP(d); return end
+
+    -- габариты рамки в плоскости экрана (студы → пиксели на глубине центра)
+    local rMin, rMax, uMin, uMax = math.huge, -math.huge, math.huge, -math.huge
+    for xi = 0, 1 do for yi = 0, 1 do for zi = 0, 1 do
+        local c = Vector3.new(xi == 0 and minV.X or maxV.X, yi == 0 and minV.Y or maxV.Y, zi == 0 and minV.Z or maxV.Z) - center
+        local r, u = c:Dot(right), c:Dot(up)
+        if r < rMin then rMin = r end; if r > rMax then rMax = r end
+        if u < uMin then uMin = u end; if u > uMax then uMax = u end
+    end end end
+    local bw = math.max((rMax - rMin) / spp, 4)
+    local bh = math.max((uMax - uMin) / spp, 6)
+    local W = math.max(bw + ESP_PAD_X * 2, ESP_MIN_W)
+    local H = bh + ESP_TOP + ESP_BOT
+    -- точка холста, совпадающая с центром рамки
+    local boxCX, boxCY = W / 2, ESP_TOP + bh / 2
+    if not WC_PROJ.place(d.pn, center + right * ((rMin + rMax) / 2) + up * ((uMin + uMax) / 2), W, H, boxCX / W, boxCY / H) then
+        hideESP(d); return
     end
-    
-    if allOnScreen and #corners == 8 then
-        local minX, minY = math.huge, math.huge
-        local maxX, maxY = -math.huge, -math.huge
-        for _, sp in ipairs(corners) do
-            minX = math.min(minX, sp.X); maxX = math.max(maxX, sp.X)
-            minY = math.min(minY, sp.Y); maxY = math.max(maxY, sp.Y)
-        end
-        
-        d.box.Position = UDim2.fromOffset(minX, minY)
-        d.box.Size = UDim2.fromOffset(maxX - minX, maxY - minY)
-        d.box.Visible = true
-        
-        local dist = 0
-        local myChar = player.Character
-        local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-        if myRoot then dist = (myRoot.Position - hrp.Position).Magnitude end
-        
-        d.nameLabel.Text = string.format("%s  [%dm]", d.baseName, math.floor(dist + 0.5))
-        d.nameLabel.Position = UDim2.fromOffset(minX + (maxX - minX) / 2, minY - 14)
-        d.nameLabel.Visible = true
-        
-        if espHPEnabled and hum then
-            local hp = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
-            d.hpBarBg.Position = UDim2.fromOffset(minX - 7, minY)
-            d.hpBarBg.Size = UDim2.fromOffset(3, maxY - minY)
-            d.hpBarFill.Size = UDim2.fromScale(1, hp)
-            if hp > 0.5 then
-                d.hpBarFill.BackgroundColor3 = Color3.fromRGB(math.floor(255 * (1 - (hp - 0.5) * 2)), 255, 0)
-            else
-                d.hpBarFill.BackgroundColor3 = Color3.fromRGB(255, math.floor(255 * hp * 2), 0)
-            end
-            d.hpBarBg.Visible = true
+
+    local bx = (W - bw) / 2
+    d.box.Position = UDim2.fromOffset(bx, ESP_TOP)
+    d.box.Size = UDim2.fromOffset(bw, bh)
+
+    local dist = 0
+    local myChar = player.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if myRoot then dist = (myRoot.Position - hrp.Position).Magnitude end
+    d.nameLabel.Text = string.format("%s  [%dm]", d.baseName, math.floor(dist + 0.5))
+
+    if espHPEnabled then
+        local hp = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+        d.hpBarBg.Position = UDim2.fromOffset(bx - 7, ESP_TOP)
+        d.hpBarBg.Size = UDim2.fromOffset(3, bh)
+        d.hpBarFill.Size = UDim2.fromScale(1, hp)
+        if hp > 0.5 then
+            d.hpBarFill.BackgroundColor3 = Color3.fromRGB(math.floor(255 * (1 - (hp - 0.5) * 2)), 255, 0)
         else
-            d.hpBarBg.Visible = false
+            d.hpBarFill.BackgroundColor3 = Color3.fromRGB(255, math.floor(255 * hp * 2), 0)
         end
+        d.hpBarBg.Visible = true
     else
-        hideESP(d)
+        d.hpBarBg.Visible = false
     end
 end
 
@@ -6564,6 +6624,7 @@ local function Unload()
     pcall(Cos.unmountAll)
     pcall(Cos.clearAllRemote)
     pcall(function() if WC_PROJ.gui then WC_PROJ.gui:Destroy() end end)
+    pcall(function() if WC_PROJ.parts then WC_PROJ.parts:Destroy() end end)
     pcall(function() if Cos.folder then Cos.folder:Destroy() end end)
     pcall(Features.applyKorblox, false)
     pcall(Features.applyHeadless, false)
@@ -6822,9 +6883,13 @@ end
 
 -- ================= ВКЛАДКА INFO: экзекьютор + апдейт-лист =================
 do (function()
-    local VERSION = "2.7.6"
+    local VERSION = "2.8"
     local LOADSTRING = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/wannacry.lua"))()'
     local CHANGELOG = {
+        {v = "2.8", date = "18.11.2026", items = {
+            "ESP, ники, HP, метки «wannacry» и облачка рисуются 2D-панелями в мире — движок рисует их вместе с персонажами, Aspect их не сдвигает",
+            "Рамка ESP теперь охватывает персонажа целиком, с ногами",
+        }},
         {v = "2.7.6", date = "18.11.2026", items = {
             "ESP, ники, метки и облачка проецируются по нормальной камере — растяжение Aspect их больше не сдвигает",
         }},
