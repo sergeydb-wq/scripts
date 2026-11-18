@@ -126,7 +126,7 @@ local Themes = {
 local State = {
     CurrentTheme = "Black",
     FogEnabled = false, FogSettings = {Density = 0.4, Offset = 0.25, Color = Color3.fromRGB(199,199,199), Decay = Color3.fromRGB(106,112,125)},
-    SkyEnabled = false, SkyIndex = 1, SkyCelestial = true, SkyCustomId = "", AspectEnabled = false, AspectValue = 0.80,
+    SkyEnabled = false, SkyIndex = 1, SkyCelestial = true, SkyCustomId = "", AspectEnabled = false, AspectValue = 0.80, AspectComp = 2.0,
     FullbrightEnabled = false, FullbrightBrightness = 3, MotionBlurEnabled = false, MotionBlurStrength = 50,
     WorldEnabled = false, WorldSettings = {Saturation = 0, Contrast = 0, Brightness = 0, TintColor = Color3.fromRGB(255,255,255)},
     JumpCircleEnabled = false, JumpCircleUseTheme = true, JumpCircleCustomColor = Color3.fromRGB(255,255,255), JumpCircleStyle = "segments", JumpCircleGlow = true,
@@ -938,23 +938,24 @@ end)() end
 -- стоит ровно на персонаже при любом разрешении, аспект-ратио, FOV и силе Aspect.
 local WC_PROJ = {items = {}, gui = nil}
 do (function()
-    -- Точка мира → пиксель экрана по ФАКТИЧЕСКОЙ матрице камеры (как её получает рендер).
-    -- Aspect делает матрицу неортогональной (ось Y растянута), поэтому решаем
-    -- rel = a·X + b·Y + c·Z честной обратной матрицей, а не через скалярные произведения.
-    -- Зовётся из обработчиков с приоритетом Last — после того, как Aspect уже исказил камеру.
+    -- Точка мира → пиксель экрана.
+    -- Считаем по нормальной (ортонормированной) камере — так результат не зависит от того,
+    -- как и сколько раз Aspect исказил матрицу камеры. Растяжение Aspect добавляем отдельно:
+    -- вертикаль от центра экрана умножается на k = сила^(-поправка). Поправку (State.AspectComp)
+    -- можно подогнать ползунком в настройках Aspect — тогда ESP совпадает с картинкой при любой силе.
     function WC_PROJ.toScreen(pos)
         local cam = Workspace.CurrentCamera
         if not cam then return nil end
         local cf = cam.CFrame
-        local X, Y, Z = cf.XVector, cf.YVector, cf.ZVector
-        local YxZ, ZxX, XxY = Y:Cross(Z), Z:Cross(X), X:Cross(Y)
-        local det = X:Dot(YxZ)
-        if math.abs(det) < 1e-6 then return nil end
         local rel = pos - cf.Position
-        local x = rel:Dot(YxZ) / det
-        local y = rel:Dot(ZxX) / det
-        local z = rel:Dot(XxY) / det
+        local x = rel:Dot(cf.XVector.Unit)
+        local y = rel:Dot(cf.YVector.Unit)
+        local z = rel:Dot(cf.ZVector.Unit)
         if z >= -0.05 then return nil end
+        if State.AspectEnabled then
+            local v = math.max(State.AspectValue or 1, 0.05)
+            y = y * v ^ (-(State.AspectComp or 2))
+        end
         local vp = cam.ViewportSize
         if vp.X <= 0 or vp.Y <= 0 then return nil end
         local t = math.tan(math.rad(cam.FieldOfView) / 2)
@@ -3386,6 +3387,7 @@ makeSection(VisualsScroll, "КАМЕРА")
 createCard(VisualsScroll, {title = "Aspect", desc = "Растянутое разрешение", key = "AspectEnabled",
     settings = function(p)
         makeSlider(p, "Сила", 0.5, 1.5, State.AspectValue, function(v) State.AspectValue = v end)
+        makeSlider(p, "Поправка ESP (двигай, пока рамки не встанут на игроков)", -3, 3, State.AspectComp, function(v) State.AspectComp = v; WC_PROJ.calibUntil = os.clock() + 2.5 end, 2)
     end})
 
 createCard(VisualsScroll, {title = "Motion Blur", desc = "Размытие движения: даль, рывки, края", key = "MotionBlurEnabled",
@@ -3761,7 +3763,8 @@ if _genv.__WC_ESP_BIND then pcall(function() RunService:UnbindFromRenderStep(_ge
 _genv.__WC_ESP_BIND = ESP_BIND
 RunService:BindToRenderStep(ESP_BIND, Enum.RenderPriority.Last.Value, function()
     if ScriptUnloaded then pcall(function() RunService:UnbindFromRenderStep(ESP_BIND) end) return end
-    local hideAll = isOpen or not espEnabled
+    -- пока двигают ползунок поправки — ESP видно даже при открытом меню
+    local hideAll = (isOpen and os.clock() > (WC_PROJ.calibUntil or 0)) or not espEnabled
     for model, d in pairs(activeESPs) do
         if not model.Parent then
             RemoveESP(model)
@@ -6814,9 +6817,13 @@ end
 
 -- ================= ВКЛАДКА INFO: экзекьютор + апдейт-лист =================
 do (function()
-    local VERSION = "2.7.2"
+    local VERSION = "2.7.3"
     local LOADSTRING = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/wannacry.lua"))()'
     local CHANGELOG = {
+        {v = "2.7.3", date = "18.11.2026", items = {
+            "Aspect: ползунок «Поправка ESP» — подгони один раз, и ESP/метки совпадут с картинкой при любой силе",
+            "ESP и метки считаются по нормальной камере, растяжение Aspect применяется отдельно",
+        }},
         {v = "2.7.2", date = "18.11.2026", items = {
             "ESP и метки считаются по фактической матрице камеры в самом конце кадра — точно совпадают с картинкой при любом Aspect",
             "Повторный запуск скрипта больше не растягивает экран дважды (старый Aspect снимается)",
