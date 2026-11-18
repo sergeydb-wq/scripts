@@ -1058,7 +1058,7 @@ do (function()
 
     Tex.ITEM_BASE = "https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/items/"
     Tex.ITEM_REV = "r1"
-    Tex.ITEMS = {"door_b", "door_f", "door_l", "door_r", "hat_black", "hat_pink", "katana", "mask_band_b", "mask_band_s", "mask_bh", "mask_f", "mask_side", "peng_b", "peng_f", "peng_l", "peng_r", "peng_top", "trident", "w_angel_l", "w_angel_lm", "w_angel_r", "w_angel_rm", "w_aqua_l", "w_aqua_lm", "w_aqua_r", "w_aqua_rm", "w_diamond_l", "w_diamond_lm", "w_diamond_r", "w_diamond_rm", "w_pulse_l", "w_pulse_lm", "w_pulse_r", "w_pulse_rm", "yagik_b", "yagik_f", "yagik_fur", "yagik_l", "yagik_r"}
+    Tex.ITEMS = {"door_b", "door_f", "door_l", "door_r", "hat_black", "hat_pink", "katana", "mask_band_b", "mask_band_s", "mask_bh", "mask_f", "mask_side", "peng_b", "peng_f", "peng_l", "peng_r", "peng_top", "trident", "w_angel_l", "w_angel_lm", "w_angel_r", "w_angel_rm", "w_aqua_l", "w_aqua_lm", "w_aqua_r", "w_aqua_rm", "w_diamond_l", "w_diamond_lm", "w_diamond_r", "w_diamond_rm", "w_pulse_l", "w_pulse_lm", "w_pulse_r", "w_pulse_rm", "yagik_b", "yagik_f", "yagik_face", "yagik_fur", "yagik_l", "yagik_r"}
     function Tex.loadItem(name)
         local path = "WannacryAssets/it_" .. Tex.ITEM_REV .. "_" .. name .. ".png"
         if not isfile(path) then
@@ -4777,28 +4777,37 @@ do (function()
         end})
 
     D({id = "yagik", name = "Ягик", cat = "Pets", col = "Ягик", anchor = "pet", view = "front",
-        desc = "Пятнистый детёныш ягуара",
+        desc = "Пятнистый детёныш ягуара: машет хвостом и перебирает лапами",
         build = function(R)
-            local s = 0.0082
-            local g = G(R, "body", IDENT, true)
-            local W, H, Dp = 63 * s, 122 * s, 143 * s
-            local ground = -0.6
-            local top = ground + H
-            -- коробка с видами (спереди/сзади/слева/справа)
-            photoBox(g, "yagik", V3(W, H, Dp), CF(0, ground + H / 2, 0))
-            -- объём внутри: голова и туловище с текстурой меха (по силуэту сбоку)
-            local function core(x0, x1, y0, y1, wk)
-                local z = ((x0 + x1) / 2 - 71.5) * s
-                local y = top - (y0 + y1) / 2 * s
-                local p = P(g, "block", V3(W * wk, (y1 - y0) * s, (x1 - x0) * s), CF(0, y, z), C3(236, 190, 90))
-                tex(p, "it_yagik_fur", 0.3, 0.2)
+            local yel, cream, dark = C3(240, 196, 100), C3(250, 236, 205), C3(70, 42, 24)
+            -- мех и мордочка — из присланной картинки
+            local function fur(p, sz) tex(p, "it_yagik_fur", sz or 0.6, (sz or 0.6) * 0.66) return p end
+            local g = G(R, "body")
+            fur(P(g, "block", V3(0.62, 0.5, 0.95), CF(0, -0.05, 0.1), yel))
+            local head = fur(P(g, "block", V3(0.6, 0.55, 0.5), CF(0, 0.32, -0.45), yel))
+            img(head, "yagik_face", NF.Front)
+            for _, sx in ipairs({1, -1}) do
+                fur(P(g, "block", V3(0.16, 0.16, 0.08), CF(sx * 0.21, 0.66, -0.42), yel), 0.3)
+                P(g, "block", V3(0.08, 0.08, 0.02), CF(sx * 0.21, 0.65, -0.465), dark)
             end
-            core(5, 43, 8, 45, 0.82)
-            core(46, 108, 40, 73, 0.72)
+            local legs = {{0.19, -0.2}, {-0.19, -0.2}, {0.19, 0.4}, {-0.19, 0.4}}
+            for i, l in ipairs(legs) do
+                local lg = G(R, "l" .. i, CF(l[1], -0.28, l[2]), true)
+                fur(P(lg, "block", V3(0.18, 0.36, 0.18), CF(0, -0.18, 0), yel), 0.4)
+                P(lg, "block", V3(0.19, 0.06, 0.19), CF(0, -0.35, 0), cream)
+            end
+            local tl = G(R, "tail", CF(0, 0.08, 0.56), true)
+            fur(P(tl, "block", V3(0.1, 0.1, 0.3), CF(0, 0.06, 0.12) * ANG(rad(-30), 0, 0), yel), 0.3)
+            fur(P(tl, "block", V3(0.1, 0.1, 0.26), CF(0, 0.24, 0.27) * ANG(rad(-62), 0, 0), yel), 0.3)
+            P(tl, "block", V3(0.11, 0.13, 0.11), CF(0, 0.38, 0.33), dark)
         end,
         anim = function(R, t, dt, ctx)
-            local walk = (ctx.speed > 1) and 1 or 0
-            R.pose.body = CF(0, math.abs(sin(t * 8)) * 0.08 * walk, 0) * ANG(0, 0, sin(t * 8) * 0.04 * walk)
+            local walk = (ctx.speed > 1) and 1 or 0.15
+            for i = 1, 4 do
+                local ph = (i == 1 or i == 4) and 0 or math.pi
+                R.pose["l" .. i] = ANG(sin(t * 9 + ph) * 0.45 * walk, 0, 0)
+            end
+            R.pose.tail = ANG(0, sin(t * 4) * rad(25), 0)
         end})
     D({id = "door_pet", name = "Дверь", cat = "Pets", col = "Флюга", anchor = "pet", view = "front",
         desc = "Белая дверь-питомец: сама открывается и закрывается",
@@ -7489,9 +7498,12 @@ end
 
 -- ================= ВКЛАДКА INFO: экзекьютор + апдейт-лист =================
 do (function()
-    local VERSION = "3.5.3"
+    local VERSION = "3.5.4"
     local LOADSTRING = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/wannacry.lua"))()'
     local CHANGELOG = {
+        {v = "3.5.4", date = "18.11.2026", items = {
+            "Ягик: вернул прежнюю модельку (лапы, хвост, уши), но мех и мордочка теперь из присланной картинки",
+        }},
         {v = "3.5.3", date = "18.11.2026", items = {
             "Маска, Пингвин и шапка Флюга прячут твои волосы/шапки (у тебя и у юзеров скрипта), ничего не торчит",
             "Пингвин сверху теперь сплошной с текстурой спины",
