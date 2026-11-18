@@ -2280,10 +2280,11 @@ do
     -- ================= KORBLOX (игла как у оригинала) =================
     -- Правая нога прячется, вместо неё — тонкая чёрная игла, которая
     -- сужается к земле; кончик синий, с процедурной текстурой энергии.
-    local Korblox = {model = nil, hidden = {}, conns = {}}
+    local Korblox = {model = nil, hidden = {}, conns = {}, token = 0}
     local KORBLOX_LEGS = {"RightUpperLeg", "RightLowerLeg", "RightFoot", "Right Leg"}
 
     local function korbloxClear(restore)
+        Korblox.token += 1
         for _, c in ipairs(Korblox.conns) do pcall(function() c:Disconnect() end) end
         Korblox.conns = {}
         if Korblox.model then pcall(function() Korblox.model:Destroy() end); Korblox.model = nil end
@@ -2293,6 +2294,92 @@ do
             end
         end
         Korblox.hidden = {}
+    end
+
+    -- ---------- НАСТОЯЩИЙ Korblox (каталог 139607718) ----------
+    -- Персонаж с этой ногой собирается из твоего описания аватара, и её детали
+    -- приклеиваются к настоящей ноге по суставам — двигается вместе с анимацией.
+    local KORBLOX_ID = 139607718
+    local KCache = setmetatable({}, {__mode = "k"})
+    local function korbloxTemplate(char)
+        local c = KCache[char]
+        if c ~= nil then return c or nil end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum then return nil end
+        local ok, gen = pcall(function()
+            local d = hum:GetAppliedDescription():Clone()
+            d.RightLeg = KORBLOX_ID
+            return game:GetService("Players"):CreateHumanoidModelFromDescription(d, hum.RigType)
+        end)
+        if not ok or not gen then
+            warn("[wannacry] korblox mesh: " .. tostring(gen))
+            KCache[char] = false
+            return nil
+        end
+        KCache[char] = gen
+        return gen
+    end
+    local function korbloxReal(char)
+        local gen = korbloxTemplate(char)
+        if not gen or not char.Parent then return nil end
+        local model = Instance.new("Model")
+        model.Name = "WC_Korblox"
+        local any = false
+        local function prep(p)
+            p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.Massless = false, false, false, false, true
+            p.Transparency = 0
+            for _, c in ipairs(p:GetChildren()) do
+                if c:IsA("JointInstance") or c:IsA("Attachment") or c:IsA("WeldConstraint") or c:IsA("Constraint") then c:Destroy() end
+            end
+        end
+        local function weld(p0, p1, c0, c1)
+            local w = Instance.new("Weld")
+            w.Part0, w.Part1, w.C0, w.C1 = p0, p1, c0, c1
+            w.Parent = p1
+        end
+        if char:FindFirstChild("RightUpperLeg") then
+            for _, pr in ipairs({{"RightUpperLeg", "RightHipRigAttachment"}, {"RightLowerLeg", "RightKneeRigAttachment"}, {"RightFoot", "RightAnkleRigAttachment"}}) do
+                local real, src = char:FindFirstChild(pr[1]), gen:FindFirstChild(pr[1])
+                local ra = real and real:FindFirstChild(pr[2])
+                local sa = src and src:FindFirstChild(pr[2])
+                if real and src and ra and sa then
+                    local c1 = sa.CFrame
+                    local p = src:Clone()
+                    prep(p)
+                    p.Name = "Korblox_" .. pr[1]
+                    p.CFrame = real.CFrame * ra.CFrame * c1:Inverse()
+                    weld(real, p, ra.CFrame, c1)
+                    p.Parent = model
+                    any = true
+                end
+            end
+        else
+            local leg = char:FindFirstChild("Right Leg")
+            local cm
+            for _, c in ipairs(gen:GetChildren()) do
+                if c:IsA("CharacterMesh") and c.BodyPart == Enum.BodyPart.RightLeg then cm = c end
+            end
+            if leg and cm and cm.MeshId ~= 0 then
+                local p = Instance.new("Part")
+                p.Name = "Korblox_RightLeg"
+                p.Size = leg.Size
+                p.Color = leg.Color
+                prep(p)
+                local m = Instance.new("SpecialMesh")
+                m.MeshType = Enum.MeshType.FileMesh
+                m.MeshId = "rbxassetid://" .. cm.MeshId
+                local tex = (cm.OverlayTextureId ~= 0 and cm.OverlayTextureId) or cm.BaseTextureId
+                if tex ~= 0 then m.TextureId = "rbxassetid://" .. tex end
+                m.Parent = p
+                p.CFrame = leg.CFrame
+                weld(leg, p, CFrame.identity, CFrame.identity)
+                p.Parent = model
+                any = true
+            end
+        end
+        if not any then model:Destroy(); return nil end
+        model.Parent = char
+        return model
     end
 
     local function korbloxBuild(char)
@@ -2405,7 +2492,16 @@ do
             local p = char:FindFirstChild(n)
             if p then hide(p) end
         end
-        Korblox.model = korbloxBuild(char)
+        -- сначала пробуем настоящую ногу из каталога; не вышло — игла
+        local tk = Korblox.token
+        task.spawn(function()
+            local m = korbloxReal(char)
+            if tk ~= Korblox.token or not State.KorbloxEnabled or ScriptUnloaded then
+                if m then m:Destroy() end
+                return
+            end
+            Korblox.model = m or korbloxBuild(char)
+        end)
         -- игра может пересобрать ногу (HumanoidDescription) — пересобираем иглу
         table.insert(Korblox.conns, char.ChildAdded:Connect(function(c)
             if table.find(KORBLOX_LEGS, c.Name) and State.KorbloxEnabled then
@@ -2460,6 +2556,7 @@ do
 
     -- KorBlox/Headless на чужом персонаже (другие юзеры скрипта; видно только тебе)
     function Features.applyBodyTo(char, st, korblox, headless)
+        st.token = (st.token or 0) + 1
         if st.model then pcall(function() st.model:Destroy() end); st.model = nil end
         for o, tr in pairs(st.hidden or {}) do
             if o.Parent then pcall(function() o.Transparency = tr end) end
@@ -2472,7 +2569,15 @@ do
                 local p = char:FindFirstChild(n)
                 if p and p:IsA("BasePart") then hide(p) end
             end
-            st.model = korbloxBuild(char)
+            local tk = st.token
+            task.spawn(function()
+                local m = korbloxReal(char)
+                if tk ~= st.token or ScriptUnloaded then
+                    if m then m:Destroy() end
+                    return
+                end
+                st.model = m or korbloxBuild(char)
+            end)
         end
         if headless then
             local head = char:FindFirstChild("Head")
@@ -5322,7 +5427,7 @@ do (function()
 
     -- ---------- ТЕЛО: Korblox / Headless (без превью) ----------
     makeSection(CosmeticsScroll, "ТЕЛО")
-    createCard(CosmeticsScroll, {title = "Korblox", desc = "Правая нога — чёрная игла с синим кончиком", key = "KorbloxEnabled",
+    createCard(CosmeticsScroll, {title = "Korblox", desc = "Правая нога — настоящая Korblox из каталога", key = "KorbloxEnabled",
         onToggle = function(v) Features.applyKorblox(v); Cos.avatarDirty() end})
     createCard(CosmeticsScroll, {title = "Headless", desc = "Убирает голову и лицо (аксессуары остаются)", key = "HeadlessEnabled",
         onToggle = function(v) Features.applyHeadless(v); Cos.avatarDirty() end})
@@ -7255,9 +7360,13 @@ end
 
 -- ================= ВКЛАДКА INFO: экзекьютор + апдейт-лист =================
 do (function()
-    local VERSION = "3.2"
+    local VERSION = "3.3"
     local LOADSTRING = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/wannacry.lua"))()'
     local CHANGELOG = {
+        {v = "3.3", date = "18.11.2026", items = {
+            "Korblox на персонаже — настоящая нога из каталога (139607718), двигается с анимацией; игла осталась только запасным вариантом",
+            "Другие юзеры скрипта с Korblox тоже видны с настоящей ногой",
+        }},
         {v = "3.2", date = "18.11.2026", items = {
             "Превью косметики — на твоём персонаже, с настоящими Korblox и Headless",
             "Удаление UGC: наведи на аксессуар в превью (красная подсветка) и кликни; в настройках — «Вернуть все»",
