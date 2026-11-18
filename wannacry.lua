@@ -1741,10 +1741,38 @@ do
             newSnowSlab(folder, Vector3.new(sx, SNOW_THICK, sz), CFrame.new(cx, rc.h + SNOW_THICK / 2, cz))
             if idx % 500 == 0 and yield() then return false end
         end
+        -- склоны: плиту кладём только туда, где поверхность реально плоская;
+        -- иначе делим клетку на 4 поменьше, а на кривом рельефе пропускаем
+        local function hitAt(p)
+            return castTop(Vector3.new(p.X, topY, p.Z), params, filter)
+        end
+        local function planar(pos, nrm, half)
+            local cf = cframeOnNormal(pos, nrm)
+            local R, L = cf.RightVector * half, cf.LookVector * half
+            for _, o in ipairs({R + L, R - L, -R + L, -R - L, R, -R, L, -L}) do
+                local h = hitAt(pos + o)
+                if not h then return false end
+                if math.abs((h.Position - pos):Dot(nrm)) > 0.3 or h.Normal:Dot(nrm) < 0.97 then return false end
+            end
+            return true
+        end
+        local function place(pos, nrm, size, depth)
+            if planar(pos, nrm, size / 2) then
+                newSnowSlab(folder, Vector3.new(size, SNOW_THICK, size), cframeOnNormal(pos + nrm * (SNOW_THICK / 2), nrm))
+                return
+            end
+            if depth <= 0 then return end
+            local cf = cframeOnNormal(pos, nrm)
+            local q = size / 4
+            for _, o in ipairs({cf.RightVector * q + cf.LookVector * q, cf.RightVector * q - cf.LookVector * q,
+                -cf.RightVector * q + cf.LookVector * q, -cf.RightVector * q - cf.LookVector * q}) do
+                local h = hitAt(pos + o)
+                if h and h.Normal.Y >= 0.5 then place(h.Position, h.Normal, size / 2, depth - 1) end
+            end
+        end
         for idx, s in ipairs(slopes) do
-            local pos, nrm = s[1], s[2]
-            newSnowSlab(folder, Vector3.new(SNOW_CELL * 1.15, SNOW_THICK, SNOW_CELL * 1.15), cframeOnNormal(pos + nrm * (SNOW_THICK / 2), nrm))
-            if idx % 500 == 0 and yield() then return false end
+            place(s[1], s[2], SNOW_CELL * 1.1, 2)
+            if idx % 12 == 0 and yield() then return false end
         end
         return true
     end
@@ -2071,7 +2099,32 @@ do
         end)
     end
 
+    local SNOW_TINT_MATS = {"Grass", "LeafyGrass", "Ground", "Mud", "Rock", "Slate", "Basalt", "Sand", "Sandstone", "Limestone", "Pavement", "Asphalt", "Cobblestone", "CrackedLava", "Salt"}
+    local function restoreSnowTint()
+        local saved = _genv.__WC_TERRAIN_COLORS
+        if not saved then return end
+        for name, c in pairs(saved) do
+            pcall(function() Workspace.Terrain:SetMaterialColor(Enum.Material[name], c) end)
+        end
+        _genv.__WC_TERRAIN_COLORS = nil
+    end
+    local function applySnowTint()
+        restoreSnowTint()
+        local saved = {}
+        for _, name in ipairs(SNOW_TINT_MATS) do
+            pcall(function()
+                local m = Enum.Material[name]
+                local c = Workspace.Terrain:GetMaterialColor(m)
+                saved[name] = c
+                Workspace.Terrain:SetMaterialColor(m, c:Lerp(Color3.fromRGB(236, 242, 250), 0.8))
+            end)
+        end
+        _genv.__WC_TERRAIN_COLORS = saved
+    end
+    restoreSnowTint() -- остаток от прошлого запуска
+
     function Features.applyAtmosphere()
+        restoreSnowTint()
         Atm.Token += 1
         Atm.BuildId += 1
         if Atm.ParticleConn then Atm.ParticleConn:Disconnect() end
@@ -2091,6 +2144,7 @@ do
 
         if State.AtmosphereType == "Зима" then
             setupSnowParticles()
+            pcall(applySnowTint)
             local token = Atm.Token
             task.spawn(function()
                 while Atm.Token == token and not ScriptUnloaded do
@@ -4480,11 +4534,12 @@ do (function()
             R.pose.door = CF(0, abs(sin(t * 2.4)) * 0.08, 0) * ANG(0, rad(28) * (0.5 + 0.5 * sin(t * 1.4)), 0)
         end})
 
-    D({id = "penguin", name = "Пингвин", cat = "Pets", col = "Аква", anchor = "pet", view = "front",
-        desc = "Кубический пингвин: машет крыльями и переваливается",
+    D({id = "penguin", name = "Пингвин", cat = "Hats", col = "Аква", anchor = "hat", view = "front",
+        desc = "Кубический пингвин сидит на голове: машет крыльями и покачивается",
         build = function(R)
             local navy, navyD, white, yel, yelL = C3(44, 40, 72), C3(26, 24, 44), C3(236, 244, 250), C3(244, 196, 40), C3(255, 226, 120)
-            local g = G(R, "body", IDENT, true)
+            local OFF = CF(0, 0.44, 0.05)
+            local g = G(R, "body", OFF, true)
             vox(P(g, "block", V3(0.7, 0.95, 0.6), CF(0, 0.05, 0), navy), C3(70, 66, 110), 0.25)
             -- белое пузо и мордочка
             vox(P(g, "block", V3(0.62, 0.78, 0.04), CF(0, -0.01, -0.31), white), C3(255, 255, 255), 0.25)
@@ -4503,7 +4558,7 @@ do (function()
             end
             -- крылья
             for i, sx in ipairs({1, -1}) do
-                local f = G(R, "f" .. i, CF(sx * 0.36, 0.22, 0.02), true)
+                local f = G(R, "f" .. i, OFF * CF(sx * 0.36, 0.22, 0.02), true)
                 vox(P(f, "block", V3(0.08, 0.5, 0.36), CF(sx * 0.03, -0.25, 0), navyD), C3(60, 56, 100), 0.25)
             end
         end,
@@ -4982,15 +5037,268 @@ do (function()
         end
         for _, it in ipairs(g.items) do it.p.CFrame = it.off; it.p.Parent = parent end
     end
+    -- =========== АВАТАР ДЛЯ ПРЕВЬЮ + УДАЛЕНИЕ UGC ===========
+    local PlayersS = game:GetService("Players")
+    local HttpS = game:GetService("HttpService")
+    local KORBLOX_ID, HEADLESS_ID = 139607718, 15093053680
+    local UGC_FILE = "WannacryAssets/ugc_removed.json"
+    local CLOTHES = {TShirt = true, Shirt = true, Pants = true, Jacket = true, Sweater = true, Shorts = true,
+        LeftShoe = true, RightShoe = true, DressSkirt = true}
+    Cos.ugc = {removed = {}, stash = {}}
+    pcall(function()
+        if isfile and isfile(UGC_FILE) then
+            for _, n in ipairs(HttpS:JSONDecode(readfile(UGC_FILE))) do Cos.ugc.removed[tostring(n)] = true end
+        end
+    end)
+    local function saveUgc()
+        pcall(function()
+            local t = {}
+            for n in pairs(Cos.ugc.removed) do table.insert(t, n) end
+            writefile(UGC_FILE, HttpS:JSONEncode(t))
+        end)
+    end
+    function Cos.ugcCount()
+        local n = 0
+        for _ in pairs(Cos.ugc.removed) do n += 1 end
+        return n
+    end
+    -- аксессуар, который можно убрать: всё, кроме одежды (обычной и layered)
+    function Cos.isRemovable(acc)
+        if not acc or not acc:IsA("Accessory") then return false end
+        local h = acc:FindFirstChild("Handle")
+        if h and h:FindFirstChildOfClass("WrapLayer") then return false end
+        local ok, t = pcall(function() return acc.AccessoryType.Name end)
+        if ok and CLOTHES[t] then return false end
+        return true
+    end
+
+    Cos.avatarVer = 0
+    local dirtyQueued = false
+    function Cos.avatarDirty()
+        if dirtyQueued then return end
+        dirtyQueued = true
+        task.delay(0.25, function()
+            dirtyQueued = false
+            Cos.avatarVer += 1
+            if Cos.onAvatarDirty then pcall(Cos.onAvatarDirty) end
+        end)
+    end
+
+    local function hideAcc(acc)
+        if not State.UgcRemoveEnabled or not Cos.ugc.removed[acc.Name] or not Cos.isRemovable(acc) then return end
+        table.insert(Cos.ugc.stash, {acc = acc, parent = acc.Parent})
+        pcall(function() acc.Parent = nil end)
+    end
+    function Cos.ugcApply(char)
+        char = char or player.Character
+        if not char then return end
+        for _, c in ipairs(char:GetChildren()) do
+            if c:IsA("Accessory") then hideAcc(c) end
+        end
+    end
+    local function unstash()
+        for _, st in ipairs(Cos.ugc.stash) do
+            if st.parent and st.parent.Parent then pcall(function() st.acc.Parent = st.parent end) end
+        end
+        Cos.ugc.stash = {}
+    end
+    function Cos.ugcSetEnabled(v)
+        if v then Cos.ugcApply() else unstash() end
+        Cos.avatarDirty()
+    end
+    function Cos.ugcRemove(name)
+        Cos.ugc.removed[name] = true
+        saveUgc()
+        Cos.ugcApply()
+        Cos.avatarDirty()
+    end
+    function Cos.ugcRestoreAll()
+        Cos.ugc.removed = {}
+        saveUgc()
+        unstash()
+        Cos.avatarDirty()
+    end
+
+    local function watchChar(char)
+        if not char then return end
+        connect(char.ChildAdded, function(c)
+            if c:IsA("Accessory") then
+                task.defer(function() if c.Parent == char then hideAcc(c) end end)
+                if not c.Name:match("^WC_") then Cos.avatarDirty() end
+            end
+        end)
+        connect(char.ChildRemoved, function(c)
+            if c:IsA("Accessory") then Cos.avatarDirty() end
+        end)
+        task.delay(1, function()
+            if player.Character == char then Cos.ugcApply(char); Cos.avatarDirty() end
+        end)
+    end
+    watchChar(player.Character)
+    connect(player.CharacterAdded, watchChar)
+
+    -- поза покоя по суставам (без текущей анимации), корень — в нуле
+    local function restPose(m)
+        local root = m:FindFirstChild("HumanoidRootPart") or m:FindFirstChild("UpperTorso") or m:FindFirstChild("Torso")
+        if not root then return end
+        local inv = root.CFrame:Inverse()
+        local joints = {}
+        for _, d in ipairs(m:GetDescendants()) do
+            if d:IsA("BasePart") then d.CFrame = inv * d.CFrame
+            elseif d:IsA("JointInstance") or d:IsA("WeldConstraint") or d:IsA("RigidConstraint") then table.insert(joints, d) end
+        end
+        local rel = {}
+        for _, j in ipairs(joints) do
+            if j:IsA("WeldConstraint") and j.Part0 and j.Part1 then rel[j] = j.Part0.CFrame:Inverse() * j.Part1.CFrame end
+        end
+        local placed = {[root] = true}
+        root.CFrame = IDENT
+        for _ = 1, 64 do
+            local changed = false
+            for _, j in ipairs(joints) do
+                local p0, p1, r
+                if j:IsA("JointInstance") then
+                    p0, p1 = j.Part0, j.Part1
+                    r = j.C0 * j.C1:Inverse()
+                elseif j:IsA("WeldConstraint") then
+                    p0, p1, r = j.Part0, j.Part1, rel[j]
+                else
+                    local a0, a1 = j.Attachment0, j.Attachment1
+                    if a0 and a1 then p0, p1, r = a0.Parent, a1.Parent, a0.CFrame * a1.CFrame:Inverse() end
+                end
+                if r and p0 and p1 and p0:IsA("BasePart") and p1:IsA("BasePart") then
+                    if placed[p0] and not placed[p1] then
+                        p1.CFrame = p0.CFrame * r; placed[p1] = true; changed = true
+                    elseif placed[p1] and not placed[p0] then
+                        p0.CFrame = p1.CFrame * r:Inverse(); placed[p0] = true; changed = true
+                    end
+                end
+            end
+            if not changed then break end
+        end
+        -- аксессуары без сварки цепляем по одноимённым аттачментам
+        local bodyAtt = {}
+        for _, d in ipairs(m:GetDescendants()) do
+            if d:IsA("Attachment") and d.Parent and d.Parent:IsA("BasePart") and placed[d.Parent] and not d.Parent:FindFirstAncestorOfClass("Accessory") then
+                bodyAtt[d.Name] = d
+            end
+        end
+        for _, acc in ipairs(m:GetChildren()) do
+            local h = acc:IsA("Accessory") and acc:FindFirstChild("Handle")
+            if h and not placed[h] then
+                for _, a in ipairs(h:GetChildren()) do
+                    local b = a:IsA("Attachment") and bodyAtt[a.Name]
+                    if b then h.CFrame = b.Parent.CFrame * b.CFrame * a.CFrame:Inverse(); placed[h] = true; break end
+                end
+            end
+        end
+        for _, d in ipairs(m:GetDescendants()) do
+            if d:IsA("BasePart") then
+                d.Anchored = true; d.CanCollide = false; d.CanTouch = false; d.CanQuery = true
+            end
+        end
+    end
+    local function stripModel(m)
+        for _, c in ipairs(m:GetChildren()) do
+            if c.Name:match("^WC_Cos_") or c.Name:match("^WC_Pet_") or c:IsA("Tool") then c:Destroy() end
+        end
+        for _, d in ipairs(m:GetDescendants()) do
+            if d:IsA("LuaSourceContainer") or d:IsA("Sound") or d:IsA("BillboardGui") or d:IsA("SurfaceGui") or d:IsA("Highlight")
+                or d:IsA("ForceField") or d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Light") then
+                pcall(function() d:Destroy() end)
+            end
+        end
+        local hum = m:FindFirstChildOfClass("Humanoid")
+        if hum then
+            pcall(function()
+                hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+                hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+            end)
+        end
+    end
+    -- 1) настоящий аватар из описания (с настоящими Korblox и Headless)
+    local function genAvatar(char)
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum then return nil end
+        local desc = hum:GetAppliedDescription():Clone()
+        if State.KorbloxEnabled then desc.RightLeg = KORBLOX_ID end
+        if State.HeadlessEnabled then desc.Head = HEADLESS_ID end
+        local m = PlayersS:CreateHumanoidModelFromDescription(desc, hum.RigType)
+        if State.UgcRemoveEnabled then
+            for _, c in ipairs(m:GetChildren()) do
+                if Cos.isRemovable(c) and Cos.ugc.removed[c.Name] then c:Destroy() end
+            end
+        end
+        if State.HeadlessEnabled then
+            local head = m:FindFirstChild("Head")
+            if head then
+                head.Transparency = 1
+                for _, d in ipairs(head:GetChildren()) do if d:IsA("Decal") then d.Transparency = 1 end end
+            end
+        end
+        return m
+    end
+    -- 2) запасной вариант: копия твоего персонажа как есть (игла Korblox и Headless уже на нём)
+    local function cloneAvatar(char)
+        local was = char.Archivable
+        char.Archivable = true
+        local m = char:Clone()
+        char.Archivable = was
+        return m
+    end
+    local AV = {ver = -1, template = nil, building = false}
+    function Cos.previewAvatar()
+        if AV.ver ~= Cos.avatarVer and not AV.building and player.Character then
+            AV.building = true
+            local ver = Cos.avatarVer
+            task.spawn(function()
+                local char = player.Character
+                local m, done = nil, false
+                task.spawn(function()
+                    local ok, res = pcall(genAvatar, char)
+                    if ok then m = res else warn("[wannacry] avatar: " .. tostring(res)) end
+                    done = true
+                end)
+                local t0 = os.clock()
+                while not done and os.clock() - t0 < 8 do task.wait(0.1) end
+                if not m and char and char.Parent then
+                    local ok, res = pcall(cloneAvatar, char)
+                    if ok then m = res end
+                end
+                if m then
+                    pcall(stripModel, m)
+                    local ok, err = pcall(restPose, m)
+                    if not ok then warn("[wannacry] avatar pose: " .. tostring(err)) end
+                    m.Name = "WC_Avatar"
+                end
+                if AV.template then AV.template:Destroy() end
+                AV.template, AV.ver, AV.building = m, ver, false
+                if Cos.onAvatarReady then pcall(Cos.onAvatarReady) end
+            end)
+        end
+        return AV.template and AV.template:Clone()
+    end
+
     function Cos.buildPreview(def, parent, withMannequin)
         local R = Cos.newRig(def)
         local model = Instance.new("Model")
         model.Name = "Preview_" .. def.id
         for _, p in ipairs(rigParts(R)) do p.Anchored = true; p.Parent = model end
         local root = PREVIEW_ROOT[def.anchor] or IDENT
+        if withMannequin and def.anchor ~= "pet" then
+            local av = Cos.previewAvatar()
+            local body, acf
+            if av then body, acf = charAnchor(av, def.anchor) end
+            if body then
+                root = body.CFrame * acf
+                av.Parent = model
+            else
+                if av then av:Destroy() end
+                Cos.mannequin(model)
+            end
+        end
         if def.anim then pcall(def.anim, R, 0.7, 0, Cos.previewCtx(def)) end
         Cos.placeRig(R, root, false)
-        if withMannequin and def.anchor ~= "pet" then Cos.mannequin(model) end
         model.Parent = parent
         return R, model, root
     end
@@ -5015,9 +5323,32 @@ do (function()
     -- ---------- ТЕЛО: Korblox / Headless (без превью) ----------
     makeSection(CosmeticsScroll, "ТЕЛО")
     createCard(CosmeticsScroll, {title = "Korblox", desc = "Правая нога — чёрная игла с синим кончиком", key = "KorbloxEnabled",
-        onToggle = function(v) Features.applyKorblox(v) end})
+        onToggle = function(v) Features.applyKorblox(v); Cos.avatarDirty() end})
     createCard(CosmeticsScroll, {title = "Headless", desc = "Убирает голову и лицо (аксессуары остаются)", key = "HeadlessEnabled",
-        onToggle = function(v) Features.applyHeadless(v) end})
+        onToggle = function(v) Features.applyHeadless(v); Cos.avatarDirty() end})
+    if State.UgcRemoveEnabled == nil then State.UgcRemoveEnabled = false end
+    local ugcHint, ugcCountL = nil, nil
+    local function ugcRefresh()
+        if ugcCountL then
+            local n = Cos.ugcCount()
+            ugcCountL.Text = (n > 0) and ("Убрано предметов: " .. n) or "Ничего не убрано"
+        end
+        if ugcHint then
+            ugcHint.Text = State.UgcRemoveEnabled and "Наведи на предмет и кликни — убрать" or "Потяни, чтобы повернуть"
+        end
+    end
+    createCard(CosmeticsScroll, {title = "Удаление UGC", desc = "Наведи на аксессуар в превью и кликни — он пропадёт (одежда не трогается)", key = "UgcRemoveEnabled",
+        onToggle = function(v) Cos.ugcSetEnabled(v); ugcRefresh() end,
+        settings = function(p)
+            ugcCountL = new("TextLabel", {Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1, Text = "", FontFace = F.Medium, TextSize = 12, TextColor3 = Glass.TextDim, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 1, ZIndex = 3, Parent = p})
+            local b = glassButton(p, "Вернуть все", {Size = UDim2.new(1, 0, 0, 32), LayoutOrder = 2, ZIndex = 4}, {radius = "full", transparency = 0.88, textSize = 13})
+            b.MouseButton1Click:Connect(guarded(function()
+                Cos.ugcRestoreAll()
+                ugcRefresh()
+                SFX.play("on")
+            end))
+            ugcRefresh()
+        end})
 
     makeSection(CosmeticsScroll, "КОСМЕТИКА  ·  " .. #Cos.list .. " ПРЕДМЕТОВ")
 
@@ -5034,11 +5365,15 @@ do (function()
     })
     local cam = new("Camera", {FieldOfView = FOV, Parent = vp})
     vp.CurrentCamera = cam
+    local wm = new("WorldModel", {Parent = vp})
     local loadingL = new("TextLabel", {Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "Генерация текстур…", FontFace = F.Medium, TextSize = 13, TextColor3 = Glass.TextMute, ZIndex = 4, Parent = pv})
     local hint3 = new("TextLabel", {
         AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -8), Size = UDim2.fromOffset(170, 22),
         Text = "Потяни, чтобы повернуть", FontFace = F.Medium, TextSize = 11, TextColor3 = Glass.Text, ZIndex = 5, Parent = pv,
     })
+    ugcHint = hint3
+    hint3.Size = UDim2.fromOffset(230, 22)
+    ugcRefresh()
     liquid(hint3, {radius = "full", transparency = 0.9, sheen = false, glint = false, lens = false})
 
     local info = new("Frame", {Position = UDim2.new(0.56, 8, 0, 14), Size = UDim2.new(0.44, -22, 1, -28), BackgroundTransparency = 1, ZIndex = 2, Parent = feat})
@@ -5073,7 +5408,9 @@ do (function()
     local function updateCam()
         cam.CFrame = Cos.cameraCF(FP.center, FP.radius, FP.yaw, FP.pitch, FOV)
     end
-    local function showFeatured(def)
+    local clearGlow
+    local function showFeatured(def, keepCam)
+        if clearGlow then clearGlow() end
         if FP.model then FP.model:Destroy(); FP.model = nil end
         FP.def, FP.R = def, nil
         nameL.Text = def.name
@@ -5083,19 +5420,106 @@ do (function()
         task.spawn(function()
             Tex.await()
             if FP.def ~= def or ScriptUnloaded then return end
-            local ok, R, model, root = pcall(Cos.buildPreview, def, vp, true)
+            local ok, R, model, root = pcall(Cos.buildPreview, def, wm, true)
             if not ok then warn("[wannacry] preview: " .. tostring(R)); return end
             if FP.def ~= def then model:Destroy(); return end
             loadingL.Visible = false
             FP.R, FP.model, FP.root, FP.ctx = R, model, root, Cos.previewCtx(def)
             FP.center, FP.radius = Cos.frame(model)
-            FP.yaw = (def.view == "front") and (math.pi + 0.5) or 0.5
+            if not keepCam then FP.yaw = (def.view == "front") and (math.pi + 0.5) or 0.5 end
             updateCam()
         end)
     end
 
+    -- аватар перестроился (Korblox/Headless/респавн/удалили предмет) — обновляем превью
+    Cos.onAvatarDirty = function() Cos.previewAvatar() end
+    Cos.onAvatarReady = function() if FP.def and not ScriptUnloaded then showFeatured(FP.def, true) end end
+
+    -- ---------- удаление UGC: подсветка под курсором ----------
+    local HV = {acc = nil, glow = {}, press = nil}
+    clearGlow = function()
+        for _, g in ipairs(HV.glow) do pcall(function() g:Destroy() end) end
+        HV.glow, HV.acc = {}, nil
+    end
+    local GLOW = Color3.fromRGB(255, 45, 70)
+    local function makeGlow(acc)
+        clearGlow()
+        HV.acc = acc
+        for _, p in ipairs(acc:GetDescendants()) do
+            if p:IsA("BasePart") and p.Transparency < 1 then
+                for _, k in ipairs({{1.04, 0.3}, {1.13, 0.72}}) do
+                    local ok, g = pcall(function()
+                        local was = p.Archivable
+                        p.Archivable = true
+                        local c = p:Clone()
+                        p.Archivable = was
+                        return c
+                    end)
+                    if ok and g then
+                        local mesh = g:FindFirstChildOfClass("SpecialMesh")
+                        for _, c in ipairs(g:GetChildren()) do
+                            if c ~= mesh then c:Destroy() end
+                        end
+                        if mesh then
+                            mesh.TextureId = ""
+                            mesh.Scale = mesh.Scale * k[1]
+                            mesh.VertexColor = Vector3.new(1, 1, 1)
+                        else
+                            g.Size = g.Size * k[1]
+                        end
+                        if g:IsA("MeshPart") then pcall(function() g.TextureID = "" end) end
+                        g.Color, g.Material, g.Transparency = GLOW, Enum.Material.Neon, k[2]
+                        g.Anchored, g.CanQuery, g.CanCollide, g.CastShadow = true, false, false, false
+                        g.CFrame = p.CFrame
+                        g.Parent = wm
+                        table.insert(HV.glow, g)
+                    end
+                end
+            end
+        end
+    end
+    local function pickAccessory()
+        if not State.UgcRemoveEnabled or not FP.model or not isOpen or not CosmeticsTab.Visible then return nil end
+        local m = UserInputService:GetMouseLocation()
+        local ap, as = vp.AbsolutePosition, vp.AbsoluteSize
+        if as.X < 2 or as.Y < 2 then return nil end
+        if m.X < ap.X or m.Y < ap.Y or m.X > ap.X + as.X or m.Y > ap.Y + as.Y then return nil end
+        local nx = (m.X - ap.X) / as.X * 2 - 1
+        local ny = 1 - (m.Y - ap.Y) / as.Y * 2
+        local t = math.tan(math.rad(cam.FieldOfView / 2))
+        local dir = cam.CFrame:VectorToWorldSpace(Vector3.new(nx * t * (as.X / as.Y), ny * t, -1)).Unit
+        local ok, hit = pcall(function() return wm:Raycast(cam.CFrame.Position, dir * 500) end)
+        if not ok or not hit then return nil end
+        local acc = hit.Instance:FindFirstAncestorOfClass("Accessory")
+        if acc and acc:FindFirstAncestor("WC_Avatar") and Cos.isRemovable(acc) then return acc end
+        return nil
+    end
+    local function updateHover()
+        local acc = pickAccessory()
+        if acc ~= HV.acc then
+            if acc then makeGlow(acc) else clearGlow() end
+        elseif acc then
+            -- превью вращается — обводка едет вместе (детали стоят на месте, крутится камера)
+        end
+    end
+
     vp.InputBegan:Connect(function(i)
-        if isPress(i) then FP.dragging = true; UI.dragLock = true; FP.last = pointerPos(i) end
+        if isPress(i) then FP.dragging = true; UI.dragLock = true; FP.last = pointerPos(i); HV.press = pointerPos(i) end
+    end)
+    connect(UserInputService.InputEnded, function(i)
+        if not isPress(i) or not HV.press then return end
+        local moved = (pointerPos(i) - HV.press).Magnitude
+        HV.press = nil
+        if moved > 6 or not State.UgcRemoveEnabled then return end
+        local acc = pickAccessory()
+        if not acc then return end
+        local name = acc.Name
+        clearGlow()
+        pcall(function() acc:Destroy() end)
+        Cos.ugcRemove(name)
+        ugcRefresh()
+        SFX.play("off")
+        notify("Удаление UGC", "Убрано: " .. name)
     end)
     connect(UserInputService.InputChanged, function(i)
         if not FP.dragging or not isMove(i) then return end
@@ -5207,7 +5631,8 @@ do (function()
             FP.R.t += dt
             if FP.def.anim then pcall(FP.def.anim, FP.R, FP.R.t, dt, FP.ctx) end
             Cos.placeRig(FP.R, FP.root, true)
-            if not FP.dragging then FP.yaw += dt * 0.35 end
+            if not FP.dragging and not HV.acc then FP.yaw += dt * 0.35 end
+            updateHover()
             updateCam()
         end
         if hovered and hovered.built then
@@ -5633,6 +6058,62 @@ do (function()
     })
     corner(hubInfo, 14)
     new("UIPadding", {PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 14), PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10), Parent = hubInfo})
+    -- ---------- телепорт по JobId (работает и в другие плейсы) ----------
+    local TPS = game:GetService("TeleportService")
+    local tpStatus
+    local function cleanId(x) return (tostring(x or ""):gsub("[%s\"']", "")) end
+    function WC_TELEPORT(placeId, jobId, report)
+        report = report or function() end
+        jobId = cleanId(jobId)
+        placeId = tonumber(cleanId(placeId)) or game.PlaceId
+        if jobId == "" then report("Укажи JobId", false) return false end
+        if not jobId:match("^%x+%-%x+%-%x+%-%x+%-%x+$") then report("JobId выглядит неправильно", false) return false end
+        if jobId == game.JobId and placeId == game.PlaceId then report("Ты уже на этом сервере", true) return false end
+        local conn
+        conn = TPS.TeleportInitFailed:Connect(function(plr, result, msg)
+            if plr ~= player then return end
+            if conn then conn:Disconnect(); conn = nil end
+            report("Телепорт не удался: " .. tostring(msg ~= "" and msg or result), false)
+        end)
+        task.delay(20, function() if conn then conn:Disconnect(); conn = nil end end)
+        report("Телепорт в плейс " .. placeId .. "…", true)
+        local ok, err = pcall(function() TPS:TeleportToPlaceInstance(placeId, jobId, player) end)
+        if not ok then
+            ok, err = pcall(function() TPS:TeleportToPlaceInstance(placeId, jobId) end)
+        end
+        if not ok then report("Ошибка: " .. tostring(err), false) end
+        return ok
+    end
+    do
+        local card = new("Frame", {Size = UDim2.new(1, -4, 0, 96), LayoutOrder = -1, Parent = serverScroll})
+        soft(card, {radius = 16, transparency = 0.95})
+        new("TextLabel", {Position = UDim2.fromOffset(14, 8), Size = UDim2.new(1, -28, 0, 18), BackgroundTransparency = 1, Text = "Телепорт по JobId", FontFace = F.Semi, TextSize = 13, TextColor3 = Glass.Text, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 2, Parent = card})
+        local function box(ph, pos, size)
+            local f = new("Frame", {Position = pos, Size = size, ZIndex = 2, Parent = card})
+            liquid(f, {radius = 10, transparency = 0.92, glint = false, sheen = false, lens = false})
+            return new("TextBox", {Position = UDim2.fromOffset(8, 0), Size = UDim2.new(1, -16, 1, 0), BackgroundTransparency = 1, Text = "", PlaceholderText = ph,
+                PlaceholderColor3 = Glass.TextMute, TextColor3 = Glass.Text, FontFace = F.Medium, TextSize = 12, ClearTextOnFocus = false,
+                TextXAlignment = Enum.TextXAlignment.Left, ClipsDescendants = true, ZIndex = 3, Parent = f})
+        end
+        local jobBox = box("JobId сервера", UDim2.fromOffset(12, 32), UDim2.new(0.62, -16, 0, 28))
+        local placeBox = box("PlaceId (" .. game.PlaceId .. ")", UDim2.new(0.62, 2, 0, 32), UDim2.new(0.38, -14, 0, 28))
+        tpStatus = new("TextLabel", {Position = UDim2.fromOffset(14, 66), Size = UDim2.new(1, -230, 0, 22), BackgroundTransparency = 1, Text = "Можно вставить JobId или ссылку с ним", FontFace = F.Regular, TextSize = 11, TextColor3 = Glass.TextMute, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 2, Parent = card})
+        local function report(t, good) tpStatus.Text = t; tpStatus.TextColor3 = good and Glass.TextDim or Color3.fromRGB(255, 140, 140) end
+        local go = glassButton(card, "Телепорт", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 64), Size = UDim2.fromOffset(96, 26), ZIndex = 3}, {radius = "full", transparency = 0.85, textSize = 12})
+        local mine = glassButton(card, "Мой JobId", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -114, 0, 64), Size = UDim2.fromOffset(96, 26), ZIndex = 3}, {radius = "full", transparency = 0.92, textSize = 12})
+        go.MouseButton1Click:Connect(function()
+            local raw = jobBox.Text
+            -- из ссылки вида ...gameInstanceId=<job>&placeId=<id> достаём оба
+            local j = raw:match("%x+%-%x+%-%x+%-%x+%-%x+") or raw
+            local pidFromLink = raw:match("[pP]lace[Ii]d=(%d+)") or raw:match("/games/(%d+)")
+            task.spawn(WC_TELEPORT, (placeBox.Text ~= "" and placeBox.Text) or pidFromLink or game.PlaceId, j, report)
+        end)
+        mine.MouseButton1Click:Connect(function()
+            local c = setclipboard or toclipboard or (syn and syn.write_clipboard)
+            if c then pcall(c, game.JobId); report("Скопировано: " .. game.JobId, true) else report(game.JobId, true) end
+        end)
+    end
+
     local rows = {}
     local thumbs = {}
     local function thumb(uid)
@@ -5864,14 +6345,23 @@ do (function()
     local adminCall, refreshPanel, renderSub
 
     local function joinPlayer(p)
+        local jid, pid
         local code, d = adminCall("join", {target = p.name})
-        if code ~= 200 then return end
-        if d.jid == game.JobId then status("Вы уже на этом сервере", true) return end
-        status("Телепорт на сервер " .. tostring(p.server) .. "…", true)
-        local ok, err = pcall(function()
-            TeleportService:TeleportToPlaceInstance(tonumber(d.pid) or game.PlaceId, d.jid, player)
-        end)
-        if not ok then status("Ошибка: " .. tostring(err), false) end
+        if code == 200 and type(d) == "table" then
+            jid = d.jid or d.jobId or d.jobid
+            pid = d.pid or d.placeId or d.placeid
+        end
+        -- запасной путь: хаб wannacry знает JobId и PlaceId каждого юзера скрипта
+        if (not jid or jid == "") and NET.hubUrl ~= "" then
+            local c2, h = hubApi("GET", "/admin/users", ("&name=%s&token=%s"):format(enc(player.Name), enc(TOKEN)))
+            if c2 == 200 and type(h) == "table" then
+                for _, u in ipairs(h.users or {}) do
+                    if tostring(u.name):lower() == tostring(p.name):lower() then jid, pid = u.jobId, u.placeId end
+                end
+            end
+        end
+        if not jid or jid == "" then status("Не удалось узнать JobId игрока " .. tostring(p.name), false) return end
+        WC_TELEPORT(tonumber(pid) or game.PlaceId, jid, status)
     end
     local function punRows(title, color, label, list, unact)
         addRow("<b>" .. title .. "</b>")
@@ -6503,6 +6993,7 @@ local function Unload()
     pcall(Features.applyAnimationPack, false)
     pcall(Features.applyDBDAnimations, false)
     pcall(Cos.unmountAll)
+    pcall(function() Cos.ugcSetEnabled(false) end)
     pcall(Cos.clearAllRemote)
     pcall(function() if WC_PROJ.gui then WC_PROJ.gui:Destroy() end end)
     pcall(function() if WC_PROJ.parts then WC_PROJ.parts:Destroy() end end)
@@ -6764,9 +7255,16 @@ end
 
 -- ================= ВКЛАДКА INFO: экзекьютор + апдейт-лист =================
 do (function()
-    local VERSION = "3.1"
+    local VERSION = "3.2"
     local LOADSTRING = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/wannacry.lua"))()'
     local CHANGELOG = {
+        {v = "3.2", date = "18.11.2026", items = {
+            "Превью косметики — на твоём персонаже, с настоящими Korblox и Headless",
+            "Удаление UGC: наведи на аксессуар в превью (красная подсветка) и кликни; в настройках — «Вернуть все»",
+            "Снег: больше не торчат плоские треугольники на склонах, террейн засыпается снегом",
+            "Телепорт по JobId (вкладка «На сервере»), Join в админке работает и в другие плейсы",
+            "Пингвин (Аква) теперь шапка — сидит на голове",
+        }},
         {v = "3.1", date = "18.11.2026", items = {
             "Оставлена только косметика коллекций + Angel Wings и Divine Halo",
             "Новая коллекция «Аква»: плащ Аква V2 и питомец Пингвин",
