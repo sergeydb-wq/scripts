@@ -938,16 +938,22 @@ end)() end
 -- стоит ровно на персонаже при любом разрешении, аспект-ратио, FOV и силе Aspect.
 local WC_PROJ = {items = {}, gui = nil}
 do (function()
+    -- Точка мира → пиксель экрана по ФАКТИЧЕСКОЙ матрице камеры (как её получает рендер).
+    -- Aspect делает матрицу неортогональной (ось Y растянута), поэтому решаем
+    -- rel = a·X + b·Y + c·Z честной обратной матрицей, а не через скалярные произведения.
+    -- Зовётся из обработчиков с приоритетом Last — после того, как Aspect уже исказил камеру.
     function WC_PROJ.toScreen(pos)
         local cam = Workspace.CurrentCamera
         if not cam then return nil end
         local cf = cam.CFrame
         local X, Y, Z = cf.XVector, cf.YVector, cf.ZVector
-        local sx = (State.AspectEnabled and State.AspectValue) or 1
+        local YxZ, ZxX, XxY = Y:Cross(Z), Z:Cross(X), X:Cross(Y)
+        local det = X:Dot(YxZ)
+        if math.abs(det) < 1e-6 then return nil end
         local rel = pos - cf.Position
-        local x = rel:Dot(X.Unit)
-        local y = rel:Dot(Y.Unit) * sx   -- движок растягивает картинку умножением на силу Aspect
-        local z = rel:Dot(Z.Unit)
+        local x = rel:Dot(YxZ) / det
+        local y = rel:Dot(ZxX) / det
+        local z = rel:Dot(XxY) / det
         if z >= -0.05 then return nil end
         local vp = cam.ViewportSize
         if vp.X <= 0 or vp.Y <= 0 then return nil end
@@ -978,10 +984,12 @@ do (function()
         WC_PROJ.items[gui] = {part = part, top = top or 0, up = up or 0, max = maxDist or 120}
         return gui
     end
-    local conn
-    conn = RunService.RenderStepped:Connect(function()
+    local BIND = "WC_Overlay_" .. tostring(math.random(1, 1e6))
+    if _genv.__WC_OVERLAY_BIND then pcall(function() RunService:UnbindFromRenderStep(_genv.__WC_OVERLAY_BIND) end) end
+    _genv.__WC_OVERLAY_BIND = BIND
+    RunService:BindToRenderStep(BIND, Enum.RenderPriority.Last.Value, function()
         if ScriptUnloaded then
-            conn:Disconnect()
+            pcall(function() RunService:UnbindFromRenderStep(BIND) end)
             if WC_PROJ.gui then WC_PROJ.gui:Destroy() end
             return
         end
@@ -1008,6 +1016,8 @@ end)() end
 
 do
     local ASPECT_BIND = "WC_Aspect_" .. tostring(math.random(1, 1e6))
+    -- если скрипт запущен повторно без Unload — снять растяжение от старой копии
+    if _genv.__WC_ASPECT_BIND then pcall(function() RunService:UnbindFromRenderStep(_genv.__WC_ASPECT_BIND) end) end
     _genv.__WC_ASPECT_BIND = ASPECT_BIND
     RunService:BindToRenderStep(ASPECT_BIND, Enum.RenderPriority.Camera.Value + 1, function()
         if ScriptUnloaded then return end
@@ -3746,8 +3756,11 @@ local function updateESP(model, d)
     end
 end
 
-connect(RunService.RenderStepped, function()
-    if ScriptUnloaded then return end
+local ESP_BIND = "WC_ESP_" .. tostring(math.random(1, 1e6))
+if _genv.__WC_ESP_BIND then pcall(function() RunService:UnbindFromRenderStep(_genv.__WC_ESP_BIND) end) end
+_genv.__WC_ESP_BIND = ESP_BIND
+RunService:BindToRenderStep(ESP_BIND, Enum.RenderPriority.Last.Value, function()
+    if ScriptUnloaded then pcall(function() RunService:UnbindFromRenderStep(ESP_BIND) end) return end
     local hideAll = isOpen or not espEnabled
     for model, d in pairs(activeESPs) do
         if not model.Parent then
@@ -6801,9 +6814,13 @@ end
 
 -- ================= ВКЛАДКА INFO: экзекьютор + апдейт-лист =================
 do (function()
-    local VERSION = "2.7.1"
+    local VERSION = "2.7.2"
     local LOADSTRING = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/wannacry.lua"))()'
     local CHANGELOG = {
+        {v = "2.7.2", date = "18.11.2026", items = {
+            "ESP и метки считаются по фактической матрице камеры в самом конце кадра — точно совпадают с картинкой при любом Aspect",
+            "Повторный запуск скрипта больше не растягивает экран дважды (старый Aspect снимается)",
+        }},
         {v = "2.7.1", date = "17.11.2026", items = {
             "Исправлено: при включённом Aspect ESP, ники и метки снова стоят ровно на персонаже",
         }},
