@@ -938,24 +938,26 @@ end)() end
 -- стоит ровно на персонаже при любом разрешении, аспект-ратио, FOV и силе Aspect.
 local WC_PROJ = {items = {}, gui = nil}
 do (function()
-    -- Точка мира → пиксель экрана.
-    -- Считаем по нормальной (ортонормированной) камере — так результат не зависит от того,
-    -- как и сколько раз Aspect исказил матрицу камеры. Растяжение Aspect добавляем отдельно:
-    -- вертикаль от центра экрана умножается на k = сила^поправка (1 = как рендер Roblox). Поправку (State.AspectComp)
-    -- можно подогнать ползунком в настройках Aspect — тогда ESP совпадает с картинкой при любой силе.
+    -- Точка мира → пиксель экрана, точно как рендер Roblox.
+    -- Рендер строит вид из матрицы камеры как есть (транспонированием), поэтому любое
+    -- растяжение оси камеры (наш Aspect, старая копия скрипта, чужой скрипт) сжимает
+    -- картинку ровно во столько раз, какова длина оси. Берём оси «как есть» — и ESP
+    -- совпадает с картинкой без догадок. Вызывается с приоритетом Last (после всех искажений).
+    -- State.AspectComp — тонкая подстройка (степень от фактического растяжения, 1 = точно).
+    WC_PROJ.stretchX, WC_PROJ.stretchY = 1, 1
     function WC_PROJ.toScreen(pos)
         local cam = Workspace.CurrentCamera
         if not cam then return nil end
         local cf = cam.CFrame
+        local X, Y, Z = cf.XVector, cf.YVector, cf.ZVector
+        local sx, sy = X.Magnitude, Y.Magnitude
+        WC_PROJ.stretchX, WC_PROJ.stretchY = sx, sy
         local rel = pos - cf.Position
-        local x = rel:Dot(cf.XVector.Unit)
-        local y = rel:Dot(cf.YVector.Unit)
-        local z = rel:Dot(cf.ZVector.Unit)
+        local comp = State.AspectComp or 1
+        local x = rel:Dot(X.Unit) * sx ^ comp
+        local y = rel:Dot(Y.Unit) * sy ^ comp
+        local z = rel:Dot(Z.Unit)
         if z >= -0.05 then return nil end
-        if State.AspectEnabled then
-            local v = math.max(State.AspectValue or 1, 0.05)
-            y = y * v ^ (State.AspectComp or 1)
-        end
         local vp = cam.ViewportSize
         if vp.X <= 0 or vp.Y <= 0 then return nil end
         local t = math.tan(math.rad(cam.FieldOfView) / 2)
@@ -6817,9 +6819,13 @@ end
 
 -- ================= ВКЛАДКА INFO: экзекьютор + апдейт-лист =================
 do (function()
-    local VERSION = "2.7.4"
+    local VERSION = "2.7.5"
     local LOADSTRING = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/wannacry.lua"))()'
     local CHANGELOG = {
+        {v = "2.7.5", date = "18.11.2026", items = {
+            "ESP и метки берут фактическое растяжение камеры — совпадают с картинкой, даже если камеру тянет старая копия скрипта",
+            "Info: живой индикатор растяжения камеры",
+        }},
         {v = "2.7.4", date = "18.11.2026", items = {
             "Aspect: ESP и метки сжимаются к центру ровно как картинка Roblox (правильное направление по умолчанию)",
         }},
@@ -6937,6 +6943,20 @@ do (function()
         WC_ICON.make(c[2] and "check" or "x", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(12, 12), ImageColor3 = c[2] and GREEN or RED, ZIndex = 3, Parent = dot})
         text(sup, c[1] .. '  <font color="#8a8fa8">— ' .. c[3] .. "</font>", 46, y, 1, 22, 12, F.Medium, Glass.Text, true)
     end
+
+    -- живой индикатор: насколько сейчас растянута камера (должно быть 1.00, если Aspect выключен)
+    local st = card(52)
+    local stL = text(st, "", 18, 0, 1, 52, 13, F.Medium, Glass.Text, true)
+    stL.TextWrapped = true
+    task.spawn(function()
+        while not ScriptUnloaded and st.Parent do
+            local y = WC_PROJ.stretchY or 1
+            local ok = math.abs(y - ((State.AspectEnabled and State.AspectValue) or 1)) < 0.02
+            stL.Text = ("Растяжение камеры: <b>%.2f</b>%s"):format(y, ok and ""
+                or '  <font color="#ff8a8a">— камеру тянет что-то кроме Aspect (старая копия скрипта?). Перезайди в игру.</font>')
+            task.wait(0.5)
+        end
+    end)
 
     -- ---------- игра ----------
     makeSection(scroll, "ИГРА")
