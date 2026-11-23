@@ -9,3 +9,20 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/w
 ```
 
 Меню: Insert (меняется в Settings) или кнопка-логотип слева сверху.
+
+## Скрипты под игры
+
+Тот же wannacry + вкладка **«Игра»** с подвкладками игровых функций. Значения функций сохраняются в конфиги wannacry.
+
+| Скрипт | Игра | Подвкладки |
+|---|---|---|
+| WannaBloc | BlockCraft | Бой, Движение, Фарм, Визуалы |
+| WannaCarry | Carry People 3 | Бой, Движение, Игрок, Визуалы, Разное, История, Сервер (без ключа) |
+
+```lua
+-- WannaBloc (BlockCraft)
+loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/WannaBloc.lua"))()
+
+-- WannaCarry (Carry People 3)
+loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/wannaclient/WannaCarry.lua"))()
+```
