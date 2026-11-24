@@ -14,6 +14,8 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/w
 
 Тот же wannacry + вкладка **«Игра»** с подвкладками игровых функций. Значения функций сохраняются в конфиги wannacry.
 
+**WannaBloc и WannaCarry работают по ключу** (wannacry Visuals — бесплатно). При запуске появится окно ввода ключа; ключ выдаёт Telegram-бот WannaCry и сохраняется на ПК (`workspace/wannacry/keys.json`). Сам код скриптов отдаёт сервер ключей только с действующим ключом.
+
 | Скрипт | Игра | Подвкладки |
 |---|---|---|
 | WannaBloc | BlockCraft | Бой, Движение, Фарм, Визуалы |
