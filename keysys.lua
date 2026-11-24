@@ -7,7 +7,7 @@
 local KeySys = {}
 
 -- Адрес сервера ключей (IP:порт с панели хостинга)
-KeySys.API = "http://SERVER_IP:PORT"
+KeySys.API = "http://78.154.103.26:13968"
 
 local HttpService  = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
