@@ -115,7 +115,11 @@ function KeySys.botUrl()
     return KeySys._bot
 end
 
-function KeySys.launch(name, key)
+function KeySys.launch(name, key, res)
+    res = res or KeySys.check(key, name)
+    -- срок ключа для самого скрипта (надпись «N days left» в профиле)
+    local env = (getgenv and getgenv()) or _G
+    env.WannaKey = { key = key, script = name, left = res and res.left, expires_at = res and res.expires_at }
     local src = game:HttpGet(("%s/api/script?name=%s&key=%s&hwid=%s"):format(
         KeySys.API, enc(name), enc(key), enc(KeySys.hwid())))
     local fn, err = loadstring(src, "@" .. name)
@@ -355,10 +359,10 @@ function KeySys.run(name)
     local key = KeySys.saved(name)
     if key then
         local res = KeySys.check(key, name)
-        if res.ok then return KeySys.launch(name, key) end
-        return KeySys.prompt(name, function(k) KeySys.launch(name, k) end, res.reason)
+        if res.ok then return KeySys.launch(name, key, res) end
+        return KeySys.prompt(name, function(k, r) KeySys.launch(name, k, r) end, res.reason)
     end
-    return KeySys.prompt(name, function(k) KeySys.launch(name, k) end)
+    return KeySys.prompt(name, function(k, r) KeySys.launch(name, k, r) end)
 end
 
 return KeySys

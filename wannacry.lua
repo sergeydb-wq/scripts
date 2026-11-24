@@ -3285,7 +3285,7 @@ new("TextLabel", {
 })
 new("TextLabel", {
     Size = UDim2.new(1, -66, 0, 16), Position = UDim2.fromOffset(62, 32), BackgroundTransparency = 1,
-    Text = "365 days left", TextColor3 = Glass.Green, TextSize = 12, FontFace = F.Medium,
+    Text = "Free version", TextColor3 = Glass.Green, TextSize = 12, FontFace = F.Medium,
     TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 3, Parent = ProfileFrame,
 })
 
