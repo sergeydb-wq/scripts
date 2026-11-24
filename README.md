@@ -2,6 +2,14 @@
 
 wannacry — Roblox client: визуалы, ESP, движение (Strafe/Fly), 24 косметики с превью, Community (Global Chat, юзеры скрипта на сервере, админ-панель), конфиги.
 
+## Хаб (лоадер)
+
+Загрузка → экран блокировки → вкладки: поддержка функций, скрипты, настройки ключа.
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/sergeydb-wq/scripts/refs/heads/wannaclient/loader.lua"))()
+```
+
 ## Запуск
 
 ```lua
